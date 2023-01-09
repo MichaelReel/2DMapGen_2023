@@ -1,7 +1,7 @@
 extends MenuButton
 
 const CATEGORIES := {
-#	"Pixel Drawn" : "res://PixelDrawn",
+	"Pixel Drawn" : "res://PixelDrawn",
 #	"Vector Drawn" : "res://VectorDrawn",
 #	"Shader Drawn" : "res://ShaderDrawn",
 }
