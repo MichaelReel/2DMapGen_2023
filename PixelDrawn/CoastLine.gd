@@ -31,30 +31,59 @@ class Stage:
 	
 	func get_cached_stage_image() -> Image:
 		return _cached_image
+	
+	static func draw_line_on_image(image: Image, a: Vector2, b: Vector2, col: Color) -> void:
+		var longest_side = int(max(abs(a.x - b.x), abs(a.y - b.y))) + 1
+		for p in range(longest_side):
+			var t = (1.0 / longest_side) * p
+			image.set_pixelv(lerp(a, b, t), col)
 
 
 class SetupStage extends Stage:
+	var _color: Color
+	
+	func _init(color: Color):
+		_color = color
+	
 	func status_text() -> String:
 		return "Setting up..."
 	
 	func update_image(image: Image) -> void:
-		image.fill(SEA_COLOR)
+		image.fill(_color)
 		.update_image(image)
 
 
 class CoastStage extends Stage:
+	var _coast_segments: Array
+	var _color: Color
+
+	func _init(screen_size: Vector2, color: Color) -> void:
+		_coast_segments = [
+			Vector2(0.0, screen_size.y / 2.0),
+			Vector2(screen_size.x, screen_size.y / 2.0),
+		]
+		_color = color
+	
 	func status_text() -> String:
 		return "Drawing coast..."
 	
 	func update_image(image: Image) -> void:
-		image.fill(COAST_COLOR)
+		image.lock()
+		_draw_coast_segments_on_image(image, _color)
+		image.unlock()
 		.update_image(image)
+	
+	func _draw_coast_segments_on_image(image: Image, color: Color) -> void:
+		for i in range(len(_coast_segments) - 1):
+			var a = _coast_segments[i]
+			var b = _coast_segments[i + 1]
+			draw_line_on_image(image, a, b, color)
 
 
 func _ready() -> void:
 	stages = [
-		SetupStage.new(),
-		CoastStage.new(),
+		SetupStage.new(SEA_COLOR),
+		CoastStage.new(rect_size, COAST_COLOR),
 	]
 	stage_pos = 0
 
