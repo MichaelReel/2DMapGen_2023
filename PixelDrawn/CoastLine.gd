@@ -120,12 +120,93 @@ class CoastStage extends Stage:
 		return _coast_points
 
 
+class RiverComponentStage extends Stage:
+	var _mouth: Vector2
+	var _head: Vector2
+	
+	func _init(mouth: Vector2, head: Vector2) -> void:
+		_mouth = mouth
+		_head = head
+	
+	func draw_river_segments_on_image(image: Image, color: Color) -> void:
+		# Temp
+		draw_line_on_image(image, _mouth, _head, color)
+
+
+class RiverStage extends Stage:
+	var _coast_stage: CoastStage
+	var _rivers: Array
+	var _color: Color
+	var _rng: RandomNumberGenerator
+	var _started: bool
+	var _complete: bool
+	var _mouths: int
+	var _mouth_variation: int
+	var _head_variation: float
+	
+	func _init(coast_stage: CoastStage, color: Color, rng_seed: int, mouths: int) -> void:
+		_coast_stage = coast_stage
+		_rivers = []
+		_color = color
+		_rng = RandomNumberGenerator.new()
+		_rng.seed = rng_seed
+		_started = false
+		_complete = false
+		_mouths = mouths
+		_mouth_variation = 10
+		_head_variation = 10.0
+	
+	func update_data_tick(_return_after: float) -> void:
+		if not _started:
+			_setup_rivers()
+			_started = true
+		
+		# Temp
+		_complete = true
+	
+	func status_text() -> String:
+		return "Drawing rivers..."
+	
+	func update_image(image: Image) -> void:
+		image.lock()
+		_draw_rivers_on_image(image, _color)
+		image.unlock()
+		.update_image(image)
+	
+	func _draw_rivers_on_image(image: Image, color: Color) -> void:
+		for river in _rivers:
+			river.draw_river_segments_on_image(image, color)
+	
+	func update_complete() -> bool:
+		return _complete
+	
+	func _setup_rivers() -> void:
+		var coast_points := _coast_stage.get_coast_points()
+		var mouth_diff: int = len(coast_points) / (_mouths)
+		for i in range(mouth_diff / 2, len(coast_points) - mouth_diff / 2, mouth_diff):
+			var mouth = coast_points[i + _rng.randi_range(-_mouth_variation, _mouth_variation)]
+			var head_rnd_offset = Vector2(
+				_rng.randf_range(-_head_variation, _head_variation),
+				_rng.randf_range(-_head_variation, _head_variation)
+			)
+			var head = Vector2(mouth.x, mouth.y * 0.25) + head_rnd_offset
+			_rivers.append(RiverComponentStage.new(mouth, head))
+
+
 func _ready() -> void:
-	stages = [
-		SetupStage.new(SEA_COLOR),
-		CoastStage.new(rect_size, COAST_COLOR, OS.get_system_time_msecs()),
-	]
 	stage_pos = 0
+	var base_rng := RandomNumberGenerator.new()
+	base_rng.seed = OS.get_system_time_msecs()
+	
+	var background := SetupStage.new(SEA_COLOR)
+	var coast_line := CoastStage.new(rect_size, COAST_COLOR, base_rng.randi())
+	var rivers := RiverStage.new(coast_line, RIVER_COLOR, base_rng.randi(), 5)
+	
+	stages = [
+		background,
+		coast_line,
+		rivers,
+	]
 
 func _process(_delta) -> void:
 	# Create image or get last cached image
