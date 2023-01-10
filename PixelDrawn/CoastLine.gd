@@ -20,7 +20,7 @@ class Stage:
 	func status_text() -> String:
 		return ""
 	
-	func update_data_tick(_return_by: float) -> void:
+	func update_data_tick(_return_after: float) -> void:
 		pass
 	
 	func update_complete() -> bool:
@@ -76,6 +76,8 @@ class CoastStage extends Stage:
 	var _color: Color
 	var _rng: RandomNumberGenerator
 	var _complete: bool
+	var _segment_length: float
+	var _spread: float
 
 	func _init(screen_size: Vector2, color: Color, rng_seed: int) -> void:
 		_coast_points = PoolVector2Array([
@@ -85,6 +87,8 @@ class CoastStage extends Stage:
 		_color = color
 		_rng = RandomNumberGenerator.new()
 		_rng.seed = rng_seed
+		_segment_length = 7.0
+		_spread = 0.5
 	
 	func status_text() -> String:
 		return "Drawing coast..."
@@ -95,11 +99,25 @@ class CoastStage extends Stage:
 		image.unlock()
 		.update_image(image)
 	
+	func update_data_tick(return_after: float) -> void:
+		while OS.get_ticks_msec() < return_after and not _complete:
+			var new_coast_points := split_long_path_segments(_coast_points, _segment_length, _rng, _spread)
+			if len(new_coast_points) > len(_coast_points):
+				_coast_points = new_coast_points
+			else:
+				_complete = true
+	
+	func update_complete() -> bool:
+		return _complete
+
 	func _draw_coast_segments_on_image(image: Image, color: Color) -> void:
 		for i in range(len(_coast_points) - 1):
 			var a = _coast_points[i]
 			var b = _coast_points[i + 1]
 			draw_line_on_image(image, a, b, color)
+	
+	func get_coast_points() -> PoolVector2Array:
+		return _coast_points
 
 
 func _ready() -> void:
@@ -122,8 +140,8 @@ func _process(_delta) -> void:
 	# Play the current stage ontop of the previous image
 	var current_stage: Stage = stages[stage_pos]
 	status_label.bbcode_text = current_stage.status_text()
-	var return_by: float = OS.get_ticks_msec() + FRAME_DATA_TIME_MILLIS
-	current_stage.update_data_tick(return_by)
+	var return_after: float = OS.get_ticks_msec() + FRAME_DATA_TIME_MILLIS
+	current_stage.update_data_tick(return_after)
 	current_stage.update_image(image)
 	imageTexture.create_from_image(image)
 	texture = imageTexture
