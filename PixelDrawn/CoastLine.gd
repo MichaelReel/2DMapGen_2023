@@ -38,6 +38,24 @@ class Stage:
 			var t = (1.0 / longest_side) * p
 			image.set_pixelv(lerp(a, b, t), col)
 
+	static func get_off_center_point_between(a: Vector2, b: Vector2, rng: RandomNumberGenerator, spread: float) -> Vector2:
+		var mid_point = lerp(a, b, 0.5)
+		var tangent = (b - a).tangent()
+		return mid_point + tangent * (rng.randf() - 0.5) * spread
+
+	static func split_long_path_segments(path: PoolVector2Array, max_length: float, rng: RandomNumberGenerator, spread: float) -> PoolVector2Array:
+		var max_length_squared = max_length * max_length
+		var new_point_list := PoolVector2Array()
+		for i in range(len(path) - 1):
+			var a: Vector2 = path[i]
+			var b: Vector2 = path[i + 1]
+			new_point_list.append(a)
+			if a.distance_squared_to(b) >= max_length_squared:
+				new_point_list.append(get_off_center_point_between(a, b, rng, spread))
+		
+		# Re-add the final point and return
+		new_point_list.append(path[len(path) - 1])
+		return new_point_list
 
 class SetupStage extends Stage:
 	var _color: Color
@@ -54,15 +72,19 @@ class SetupStage extends Stage:
 
 
 class CoastStage extends Stage:
-	var _coast_segments: Array
+	var _coast_points: PoolVector2Array
 	var _color: Color
+	var _rng: RandomNumberGenerator
+	var _complete: bool
 
-	func _init(screen_size: Vector2, color: Color) -> void:
-		_coast_segments = [
+	func _init(screen_size: Vector2, color: Color, rng_seed: int) -> void:
+		_coast_points = PoolVector2Array([
 			Vector2(0.0, screen_size.y / 2.0),
 			Vector2(screen_size.x, screen_size.y / 2.0),
-		]
+		])
 		_color = color
+		_rng = RandomNumberGenerator.new()
+		_rng.seed = rng_seed
 	
 	func status_text() -> String:
 		return "Drawing coast..."
@@ -74,16 +96,16 @@ class CoastStage extends Stage:
 		.update_image(image)
 	
 	func _draw_coast_segments_on_image(image: Image, color: Color) -> void:
-		for i in range(len(_coast_segments) - 1):
-			var a = _coast_segments[i]
-			var b = _coast_segments[i + 1]
+		for i in range(len(_coast_points) - 1):
+			var a = _coast_points[i]
+			var b = _coast_points[i + 1]
 			draw_line_on_image(image, a, b, color)
 
 
 func _ready() -> void:
 	stages = [
 		SetupStage.new(SEA_COLOR),
-		CoastStage.new(rect_size, COAST_COLOR),
+		CoastStage.new(rect_size, COAST_COLOR, OS.get_system_time_msecs()),
 	]
 	stage_pos = 0
 
