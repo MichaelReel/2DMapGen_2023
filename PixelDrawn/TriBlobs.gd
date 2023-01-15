@@ -1,19 +1,8 @@
 extends TextureRect
 
-onready var status_label := $RichTextLabel
-onready var image := Image.new()
-onready var imageTexture := ImageTexture.new()
-onready var ready := false
-onready var blob_done := false
-onready var edges_done := false
-onready var regions_done := false
-onready var sub_regions_done := false
-onready var borders_done := false
-onready var sub_borders_done := false
-onready var rivers_done := false
-
 const CELL_EDGE := 12.0
 const SEA_COLOR := Color8(32, 32, 64, 255)
+const BASE_COLOR := SEA_COLOR
 const GRID_COLOR := Color8(40, 40, 96, 255)
 const COAST_COLOR := Color8(128, 128, 32, 255)
 const LAKE_COLOR := SEA_COLOR
@@ -37,16 +26,14 @@ const SUB_REGION_COLORS := [
 	Color8(128,  64, 192, 255),
 ]
 
-const FRAME_TIME_MILLIS := 30
+const FRAME_DATA_TIME_MILLIS := 15  # Millis spent on each data update tick
 const SLOPE := sqrt(1.0 / 3.0)
 
-var base_grid: BaseGrid
-var land_blob: TriBlob
-var mouse_tracker: MouseTracker
-var region_manager: RegionManager
-var sub_regions_manager: SubRegionManager
-var river_manager: RiverManager
+var stages: Array
+var stage_pos: int
 
+onready var status_label := $RichTextLabel
+onready var imageTexture := ImageTexture.new()
 
 class BasePoint:
 	var _pos: Vector2
@@ -401,7 +388,32 @@ class BaseTriangle:
 		status += "Parent: %s" % _parent
 		return status
 
-class BaseGrid:
+
+class Stage:
+	var _cached_image: Image
+	
+	func status_text() -> String:
+		return ""
+	
+	func update_data_tick(_return_after: float) -> void:
+		pass
+	
+	func update_complete() -> bool:
+		return true
+	
+	func update_image(image: Image) -> void:
+		_cached_image = image.duplicate()
+	
+	func get_cached_stage_image() -> Image:
+		var return_cache : Image = _cached_image.duplicate() 
+		return return_cache
+	
+	func update_mouse_coords(_mouse_coords: Vector2) -> void:
+		pass
+
+
+class BaseGrid extends Stage:
+	var _color: Color
 	var _tri_side: float
 	var _tri_height: float
 	var _grid_points: Array = []  # Array of rows of points
@@ -411,9 +423,10 @@ class BaseGrid:
 	var _center: Vector2
 	var _near_center_edges: Array = []
 	
-	func _init(edge_size: float, rect_size: Vector2) -> void:
+	func _init(edge_size: float, rect_size: Vector2, color: Color) -> void:
 		_center = rect_size / 2.0
 		_tri_side = edge_size
+		_color = color
 		_tri_height = sqrt(0.75) * _tri_side
 		
 #		 |\         h^2 + (s/2)^2 = s^2
@@ -476,6 +489,9 @@ class BaseGrid:
 			for tri in tri_row:
 				tri.update_neighbours_from_edges()
 	
+	func status_text() -> String:
+		return "Creating grid..."
+	
 	func _add_grid_line(a: BasePoint, b: BasePoint) -> BaseLine:
 		var new_line := BaseLine.new(a, b)
 		a.add_connection(new_line)
@@ -485,12 +501,12 @@ class BaseGrid:
 			_near_center_edges.append(new_line)
 		return new_line
 	
-	func draw_grid(image: Image, color: Color) -> void:
+	func update_image(image: Image) -> void:
 		image.lock()
-		
 		for line in _grid_lines:
-			line.draw_line_on_image(image, color)
+			line.draw_line_on_image(image, _color)
 		image.unlock()
+		.update_image(image)
 	
 	func get_cell_count() -> int:
 		return _cell_count
@@ -526,23 +542,32 @@ class BaseGrid:
 		return _center
 
 
-class TriBlob:
+class TriBlob extends Stage:
 	var _grid: BaseGrid
+	var _land_color: Color
+	var _perimeter_color: Color
 	var _cells: Array
 	var _cell_limit: int
 	var _blob_front: Array
 	var _perimeter: Array
+	var _expansion_done: bool
 	var _perimeter_done : bool
 	
-	func _init(grid: BaseGrid, cell_limit: int = 1):
+	func _init(grid: BaseGrid, land_color: Color, perimeter_color: Color, cell_limit: int = 1):
 		_grid = grid
+		_land_color = land_color
+		_perimeter_color = perimeter_color
 		_cells = []
 		_cell_limit = cell_limit
 		_blob_front = []
 		_perimeter = []
+		_expansion_done = false
 		_perimeter_done = false
 		var start = grid.get_middle_triangle()
 		add_triangle_as_cell(start)
+	
+	func status_text() -> String:
+		return "Generating the initial bounds of the island..."
 	
 	func add_triangle_as_cell(triangle: BaseTriangle) -> void:
 		triangle.set_parent(self)
@@ -699,46 +724,61 @@ class TriBlob:
 		"""This *could* be random, but for now will use the last added triangles"""
 		return _cells.slice(len(_cells)-count, len(_cells)-1)
 	
+	func update_data_tick(return_after: float) -> void:
+		while OS.get_ticks_msec() < return_after:
+			if not _expansion_done:
+				_blob_front.shuffle()  # Need a proper RNG shuffle for this
+				add_triangle_as_cell(_blob_front.back())
+				if _cells.size() >= _cell_limit:
+					_expansion_done = true
+				continue
+			
+			if not _perimeter_done:
+				var _lines := get_perimeter_lines()
+				_perimeter_done = true
+	
+	func update_complete() -> bool:
+		return _expansion_done and _perimeter_done
+	
 	func draw_perimeter_lines(image: Image, color: Color) -> void:
 		image.lock()
 		for line in get_perimeter_lines():
 			line.draw_line_on_image(image, color)
 		image.unlock()
-	
-	func expand_tick() -> bool:
-		if _cells.size() >= _cell_limit:
-			return true
 		
-		var frame_end = OS.get_ticks_msec() + FRAME_TIME_MILLIS
-		
-		while OS.get_ticks_msec() < frame_end and _cells.size() < _cell_limit:
-			_blob_front.shuffle()
-			add_triangle_as_cell(_blob_front.back())
-		
-		return false
-	
+	func update_image(image: Image) -> void:
+		if _perimeter_done:
+			draw_perimeter_lines(image, _perimeter_color)
+		else:
+			draw_triangles(image, _land_color)
+		.update_image(image)
 
-class MouseTracker:
+
+class MouseTracker extends Stage:
 	var _grid: BaseGrid
+	var _status_text: String
+	var _color: Color
 	var _mouse_coords: Vector2
-	var _status_label: RichTextLabel
 	
-	func _init(grid: BaseGrid, status_label: RichTextLabel) -> void:
+	func _init(grid: BaseGrid, color: Color) -> void:
 		_grid = grid
-		_status_label = status_label
+		_color = color
+		_status_text = "Initialising mouse tracking..."
 	
-	func update_mouse_coords(mouse_coords) -> void:
+	func status_text() -> String:
+		return _status_text
+	
+	func update_mouse_coords(mouse_coords: Vector2) -> void:
 		_mouse_coords = mouse_coords
 	
-	func draw_triangle_closest_to_mouse(image: Image, color: Color) -> void:
+	func update_image(image: Image) -> void:
 		image.lock()
 		var triangle: BaseTriangle = _grid.get_nearest_triangle_to(_mouse_coords)
-		triangle.draw_triangle_on_image(image, color)
+		triangle.draw_triangle_on_image(image, _color)
 		image.unlock()
+		# .update_image(image) not needed, we don't want to keep these frames
 		# Get triangle stats
-		var status_str : String = triangle.get_status()
-		_status_label.bbcode_enabled = true
-		_status_label.bbcode_text = status_str
+		_status_text = triangle.get_status()
 
 
 class Region:
@@ -791,7 +831,7 @@ class Region:
 	
 	func get_some_triangles(count: int) -> Array:
 		var random_cells = []
-		for _i in range(count):
+		for _i in range(min(count, len(_cells))):
 			random_cells.append(_cells[randi() % len(_cells)])
 		return random_cells
 	
@@ -799,31 +839,60 @@ class Region:
 		return _debug_color
 
 
-class RegionManager:
+class RegionManager extends Stage:
+	var _parent: TriBlob
+	var _colors: Array
+	var _started: bool
 	var _regions: Array
+	var _regions_done: bool
+	var _borders_done: bool
 	
 	func _init(parent: TriBlob, colors: Array) -> void:
-		var start_triangles = parent.get_some_triangles(len(colors))
+		_parent = parent
+		_colors = colors
+		_started = false
 		_regions = []
-		for i in range(len(colors)):
-			_regions.append(Region.new(parent, start_triangles[i], colors[i]))
+		_regions_done = false
+		_borders_done = false
 	
-	func expand_tick() -> bool:
-		var frame_end = OS.get_ticks_msec() + FRAME_TIME_MILLIS
-		
-		while OS.get_ticks_msec() < frame_end:
-			var done = true
-			for region in _regions:
-				if not region.expand_tick():
-					done = false
-			if done: return true
-		return false
+	func status_text() -> String:
+		return "Sectioning off the island..."
 	
-	func draw_triangles(image: Image) -> void:
+	func _setup_regions() -> void:
+		var start_triangles = _parent.get_some_triangles(len(_colors))
+		for i in range(len(_colors)):
+			_regions.append(Region.new(_parent, start_triangles[i], _colors[i]))
+	
+	func update_data_tick(return_after: float) -> void:
+		while OS.get_ticks_msec() < return_after:
+			if not _started:
+				_setup_regions()
+				_started = true
+				continue
+			
+			if not _regions_done:
+				var done = true
+				for region in _regions:
+					if not region.expand_tick():
+						done = false
+				if done:
+					_regions_done = true
+				continue
+			
+			if not _borders_done:
+				find_borders()
+				_borders_done = true
+			
+	
+	func update_complete() -> bool:
+		return _regions_done and _borders_done
+	
+	func update_image(image: Image) -> void:
 		image.lock()
 		for region in _regions:
 			region.draw_triangles(image)
 		image.unlock()
+		.update_image(image)
 	
 	func find_borders() -> void:
 		for region in _regions:
@@ -888,32 +957,61 @@ class SubRegion:
 		return random_cells
 
 
-class SubRegionManager:
+class SubRegionManager extends Stage:
+	var _parent_manager: RegionManager
+	var _colors: Array
+	var _started: bool
 	var _regions: Array
+	var _regions_done: bool
+	var _borders_done: bool
 	
 	func _init(parent_manager: RegionManager, colors: Array) -> void:
+		_parent_manager = parent_manager
+		_colors = colors
+		_started = false
 		_regions = []
-		for parent in parent_manager.get_regions():
-			var start_triangles = parent.get_some_triangles(len(colors))
-			for i in range(len(colors)):
-				_regions.append(SubRegion.new(parent, start_triangles[i], colors[i]))
+		_regions_done = false
+		_borders_done = false
 	
-	func expand_tick() -> bool:
-		var frame_end = OS.get_ticks_msec() + FRAME_TIME_MILLIS
-		
-		while OS.get_ticks_msec() < frame_end:
-			var done = true
-			for region in _regions:
-				if not region.expand_tick():
-					done = false
-			if done: return true
-		return false
+	func status_text() -> String:
+		return "Sub sectioning the sections of the island..."
+
+	func _setup_subregions() -> void:
+		for parent in _parent_manager.get_regions():
+			# The parent region might not be big enought to have subregions
+			var start_triangles = parent.get_some_triangles(len(_colors))
+			for i in range(min(len(_colors), len(start_triangles))):
+				_regions.append(SubRegion.new(parent, start_triangles[i], _colors[i]))
 	
-	func draw_triangles(image: Image) -> void:
+	func update_data_tick(return_after: float) -> void:
+		while OS.get_ticks_msec() < return_after:
+			if not _started:
+				_setup_subregions()
+				_started = true
+				continue
+			
+			if not _regions_done:
+				var done = true
+				for region in _regions:
+					if not region.expand_tick():
+						done = false
+				if done:
+					_regions_done = true
+				continue
+			
+			if not _borders_done:
+				find_borders()
+				_borders_done = true
+	
+	func update_complete() -> bool:
+		return _regions_done and _borders_done
+	
+	func update_image(image: Image) -> void:
 		image.lock()
 		for region in _regions:
 			region.draw_triangles(image)
 		image.unlock()
+		.update_image(image)
 	
 	func find_borders() -> void:
 		for region in _regions:
@@ -928,17 +1026,36 @@ class SubRegionManager:
 		return null
 
 
-class RiverManager:
+class RiverManager extends Stage:
 	var _rivers: Array
 	var _grid: BaseGrid
 	var _subregion_manager: SubRegionManager
+	var _river_count: int
+	var _river_color: Color
+	var _lake_color: Color
+	var _started: bool
 	
-	func _init(grid:BaseGrid, subregion_manager: SubRegionManager, river_count: int) -> void:
+	func _init(
+		grid: BaseGrid, subregion_manager: SubRegionManager, river_count: int, river_color: Color, lake_color: Color
+	) -> void:
 		_grid = grid
 		_subregion_manager = subregion_manager
+		_river_count = river_count
+		_river_color = river_color
+		_lake_color = lake_color
+	
+	func _setup_rivers():
 		_rivers = []
-		for _i in range(river_count):
+		for _i in range(_river_count):
 			_rivers.append(create_river())
+	
+	func update_data_tick(return_after: float) -> void:
+		if not _started:
+			_setup_rivers()
+			_started = true
+	
+	func update_complete() -> bool:
+		return _started
 	
 	func create_river() -> Array:
 		"""Create a chain of edges from near center to outer bounds"""
@@ -975,102 +1092,61 @@ class RiverManager:
 				lakes.append(lake)
 		return lakes
 		
-	func draw_rivers(image: Image, river_color: Color, lake_color: Color) -> void:
+	func update_image(image: Image) -> void:
 		image.lock()
 		for river in _rivers:
 			for edge in river:
-				edge.draw_line_on_image(image, river_color)
+				edge.draw_line_on_image(image, _river_color)
 			var lakes := identify_lakes_on_course(river)
 			for lake in lakes:
-				lake.draw_triangles(image, lake_color)
+				lake.draw_triangles(image, _lake_color)
 		image.unlock()
+		.update_image(image)
 
 
 func _ready() -> void:
-	status_label.text = "Starting..."
-	image.create(int(rect_size.x), int(rect_size.y), false, Image.FORMAT_RGBA8)
-	image.fill(SEA_COLOR)
-	randomize()
+	stage_pos = 0
+	var base_rng := RandomNumberGenerator.new()
+	base_rng.seed = OS.get_system_time_msecs()
 	
-	base_grid = BaseGrid.new(CELL_EDGE, rect_size)
-	mouse_tracker = MouseTracker.new(base_grid, status_label)
+	var base_grid := BaseGrid.new(CELL_EDGE, rect_size, GRID_COLOR)
+	var island_cells_target : int = (base_grid.get_cell_count() / 3)
+	var land_blob := TriBlob.new(base_grid, LAND_COLOR, COAST_COLOR, island_cells_target)
+	var mouse_tracker := MouseTracker.new(base_grid, CURSOR_COLOR)
+	var region_manager := RegionManager.new(land_blob, REGION_COLORS)
+	var sub_regions_manager := SubRegionManager.new(region_manager, SUB_REGION_COLORS)
+	var river_manager := RiverManager.new(base_grid, sub_regions_manager, RIVER_COUNT, RIVER_COLOR, LAKE_COLOR)
 	
-	var island_cells_target : int = (base_grid.get_cell_count() / 2)
-	
-	land_blob = TriBlob.new(base_grid, island_cells_target)
-	
-	ready = true
+	stages = [
+		base_grid,
+		land_blob,
+		region_manager,
+		sub_regions_manager,
+		river_manager,
+		mouse_tracker
+	]
 
 func _process(_delta) -> void:
-	
-	if not ready:
-		return
-	
-	elif not blob_done:
-		status_label.text = "Ready..."
-		blob_done = land_blob.expand_tick()
-		base_grid.draw_grid(image, GRID_COLOR)
-		land_blob.draw_triangles(image, LAND_COLOR)
-		imageTexture.create_from_image(image)
-		texture = imageTexture
-	
-	elif not edges_done:
-		status_label.text = "Island defined..."
-		edges_done = true
-		image.fill(SEA_COLOR)
-		base_grid.draw_grid(image, GRID_COLOR)
-		land_blob.draw_triangles(image, LAND_COLOR)
-		land_blob.draw_perimeter_lines(image, COAST_COLOR)
-		imageTexture.create_from_image(image)
-		texture = imageTexture
-		region_manager = RegionManager.new(land_blob, REGION_COLORS)
-	
-	elif not regions_done:
-		status_label.text = "Perimeter defined..."
-		image.fill(SEA_COLOR)
-		base_grid.draw_grid(image, GRID_COLOR)
-		land_blob.draw_triangles(image, LAND_COLOR)
-		land_blob.draw_perimeter_lines(image, COAST_COLOR)
-		regions_done = region_manager.expand_tick()
-		region_manager.draw_triangles(image)
-		imageTexture.create_from_image(image)
-		texture = imageTexture
-	
-	elif not borders_done:
-		status_label.text = "Regions defined..."
-		borders_done = true
-		region_manager.find_borders()
-		sub_regions_manager = SubRegionManager.new(region_manager, SUB_REGION_COLORS)
-	
-	elif not sub_regions_done:
-		status_label.text = "Region borders defined..."
-		base_grid.draw_grid(image, GRID_COLOR)
-		land_blob.draw_perimeter_lines(image, COAST_COLOR)
-		sub_regions_done = sub_regions_manager.expand_tick()
-		sub_regions_manager.draw_triangles(image)
-		imageTexture.create_from_image(image)
-		texture = imageTexture
-	
-	elif not sub_borders_done:
-		status_label.text = "Sub regions defined..."
-		sub_borders_done = true
-		sub_regions_manager.find_borders()
-	
-	elif not rivers_done:
-		status_label.text = "Sub region borders defined..."
-		rivers_done = true
-		river_manager = RiverManager.new(base_grid, sub_regions_manager, RIVER_COUNT)
-	
+	# Create image or get last cached image
+	var image: Image
+	if stage_pos > 0:
+		var previous_stage: Stage = stages[stage_pos - 1]
+		image = previous_stage.get_cached_stage_image()
 	else:
-		status_label.text = ""
-		image.fill(SEA_COLOR)
-		base_grid.draw_grid(image, GRID_COLOR)
-#		region_manager.draw_triangles(image)
-#		sub_regions_manager.draw_triangles(image)
-		land_blob.draw_triangles(image, LAND_COLOR)
-		river_manager.draw_rivers(image, RIVER_COLOR, LAKE_COLOR)
-		land_blob.draw_perimeter_lines(image, COAST_COLOR)
-		mouse_tracker.update_mouse_coords(get_viewport().get_mouse_position())
-		mouse_tracker.draw_triangle_closest_to_mouse(image, CURSOR_COLOR)
-		imageTexture.create_from_image(image)
-		texture = imageTexture
+		image = Image.new()
+		image.create(int(rect_size.x), int(rect_size.y), false, Image.FORMAT_RGBA8)
+		image.fill(BASE_COLOR)
+	
+	# Play the current stage ontop of the previous image
+	var current_stage: Stage = stages[stage_pos]
+	current_stage.update_mouse_coords(get_viewport().get_mouse_position())
+	status_label.bbcode_text = current_stage.status_text()
+	var return_after: float = OS.get_ticks_msec() + FRAME_DATA_TIME_MILLIS
+	current_stage.update_data_tick(return_after)
+	current_stage.update_image(image)
+	imageTexture.create_from_image(image)
+	texture = imageTexture
+
+	# Advance to the next stage if the current is complete and there are more stages
+	if stage_pos < len(stages) - 1 and current_stage.update_complete(): 
+		stage_pos += 1
