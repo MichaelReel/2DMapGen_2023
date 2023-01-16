@@ -389,7 +389,16 @@ class BaseTriangle:
 		return status
 
 
-class Stage:
+class Utils:
+	static func shuffle(rng: RandomNumberGenerator, target: Array) -> void:
+		for i in range(len(target)):
+			var j: int = rng.randi_range(0, len(target) - 1)
+			var swap = target[i]
+			target[i] = target[j]
+			target[j] =swap
+
+
+class Stage extends Utils:
 	var _cached_image: Image
 	
 	func status_text() -> String:
@@ -534,9 +543,8 @@ class BaseGrid extends Stage:
 			next_sqr_dist = point.distance_squared_to(next_nearest.get_pos())
 		return nearest
 	
-	func get_river_head() -> BaseLine:
-		_near_center_edges.shuffle()
-		return _near_center_edges.pop_back()
+	func get_near_center_edges() -> Array:
+		return _near_center_edges.duplicate()
 	
 	func get_center() -> Vector2:
 		return _center
@@ -551,9 +559,10 @@ class TriBlob extends Stage:
 	var _blob_front: Array
 	var _perimeter: Array
 	var _expansion_done: bool
-	var _perimeter_done : bool
+	var _perimeter_done: bool
+	var _rng: RandomNumberGenerator
 	
-	func _init(grid: BaseGrid, land_color: Color, perimeter_color: Color, cell_limit: int = 1):
+	func _init(grid: BaseGrid, land_color: Color, perimeter_color: Color, cell_limit: int, rng_seed: int):
 		_grid = grid
 		_land_color = land_color
 		_perimeter_color = perimeter_color
@@ -563,6 +572,8 @@ class TriBlob extends Stage:
 		_perimeter = []
 		_expansion_done = false
 		_perimeter_done = false
+		_rng = RandomNumberGenerator.new()
+		_rng.seed = rng_seed
 		var start = grid.get_middle_triangle()
 		add_triangle_as_cell(start)
 	
@@ -727,7 +738,7 @@ class TriBlob extends Stage:
 	func update_data_tick(return_after: float) -> void:
 		while OS.get_ticks_msec() < return_after:
 			if not _expansion_done:
-				_blob_front.shuffle()  # Need a proper RNG shuffle for this
+				shuffle(_rng, _blob_front)
 				add_triangle_as_cell(_blob_front.back())
 				if _cells.size() >= _cell_limit:
 					_expansion_done = true
@@ -781,22 +792,25 @@ class MouseTracker extends Stage:
 		_status_text = triangle.get_status()
 
 
-class Region:
+class Region extends Utils:
 	var _parent: TriBlob
 	var _debug_color: Color
 	var _cells: Array
 	var _region_front: Array
+	var _rng: RandomNumberGenerator
 	
-	func _init(parent: TriBlob, start_triangle: BaseTriangle, debug_color: Color) -> void:
+	func _init(parent: TriBlob, start_triangle: BaseTriangle, debug_color: Color, rng_seed: int) -> void:
 		_parent = parent
 		_debug_color = debug_color
 		_cells = []
 		_region_front = [start_triangle]
+		_rng = RandomNumberGenerator.new()
+		_rng.seed = rng_seed
 	
 	func expand_tick() -> bool:
 		if _region_front.empty():
 			return true
-		_region_front.shuffle()
+		shuffle(_rng, _region_front)
 		add_triangle_as_cell(_region_front.back())
 		return false
 	
@@ -832,7 +846,7 @@ class Region:
 	func get_some_triangles(count: int) -> Array:
 		var random_cells = []
 		for _i in range(min(count, len(_cells))):
-			random_cells.append(_cells[randi() % len(_cells)])
+			random_cells.append(_cells[_rng.randi() % len(_cells)])
 		return random_cells
 	
 	func get_debug_color() -> Color:
@@ -846,14 +860,17 @@ class RegionManager extends Stage:
 	var _regions: Array
 	var _regions_done: bool
 	var _borders_done: bool
+	var _rng: RandomNumberGenerator
 	
-	func _init(parent: TriBlob, colors: Array) -> void:
+	func _init(parent: TriBlob, colors: Array, rng_seed: int) -> void:
 		_parent = parent
 		_colors = colors
 		_started = false
 		_regions = []
 		_regions_done = false
 		_borders_done = false
+		_rng = RandomNumberGenerator.new()
+		_rng.seed = rng_seed
 	
 	func status_text() -> String:
 		return "Sectioning off the island..."
@@ -861,7 +878,7 @@ class RegionManager extends Stage:
 	func _setup_regions() -> void:
 		var start_triangles = _parent.get_some_triangles(len(_colors))
 		for i in range(len(_colors)):
-			_regions.append(Region.new(_parent, start_triangles[i], _colors[i]))
+			_regions.append(Region.new(_parent, start_triangles[i], _colors[i], _rng.randi()))
 	
 	func update_data_tick(return_after: float) -> void:
 		while OS.get_ticks_msec() < return_after:
@@ -888,10 +905,12 @@ class RegionManager extends Stage:
 		return _regions_done and _borders_done
 	
 	func update_image(image: Image) -> void:
-		image.lock()
-		for region in _regions:
-			region.draw_triangles(image)
-		image.unlock()
+		# Don't draw these regions, unless we're still in the creation steps
+		if not update_complete():
+			image.lock()
+			for region in _regions:
+				region.draw_triangles(image)
+			image.unlock()
 		.update_image(image)
 	
 	func find_borders() -> void:
@@ -902,22 +921,25 @@ class RegionManager extends Stage:
 		return _regions
 
 
-class SubRegion:
+class SubRegion extends Utils:
 	var _parent: Region
 	var _debug_color: Color
 	var _cells: Array
 	var _region_front: Array
+	var _rng: RandomNumberGenerator
 	
-	func _init(parent: Region, start_triangle: BaseTriangle, debug_color: Color) -> void:
+	func _init(parent: Region, start_triangle: BaseTriangle, debug_color: Color, rng_seed: int) -> void:
 		_parent = parent
 		_debug_color = debug_color
 		_cells = []
 		_region_front = [start_triangle]
+		_rng = RandomNumberGenerator.new()
+		_rng.seed = rng_seed
 	
 	func expand_tick() -> bool:
 		if _region_front.empty():
 			return true
-		_region_front.shuffle()
+		shuffle(_rng, _region_front)
 		add_triangle_as_cell(_region_front.back())
 		return false
 	
@@ -953,7 +975,7 @@ class SubRegion:
 	func get_some_triangles(count: int) -> Array:
 		var random_cells = []
 		for _i in range(count):
-			random_cells.append(_cells[randi() % len(_cells)])
+			random_cells.append(_cells[_rng.randi() % len(_cells)])
 		return random_cells
 
 
@@ -964,14 +986,17 @@ class SubRegionManager extends Stage:
 	var _regions: Array
 	var _regions_done: bool
 	var _borders_done: bool
+	var _rng: RandomNumberGenerator
 	
-	func _init(parent_manager: RegionManager, colors: Array) -> void:
+	func _init(parent_manager: RegionManager, colors: Array, rng_seed: int) -> void:
 		_parent_manager = parent_manager
 		_colors = colors
 		_started = false
 		_regions = []
 		_regions_done = false
 		_borders_done = false
+		_rng = RandomNumberGenerator.new()
+		_rng.seed = rng_seed
 	
 	func status_text() -> String:
 		return "Sub sectioning the sections of the island..."
@@ -981,7 +1006,7 @@ class SubRegionManager extends Stage:
 			# The parent region might not be big enought to have subregions
 			var start_triangles = parent.get_some_triangles(len(_colors))
 			for i in range(min(len(_colors), len(start_triangles))):
-				_regions.append(SubRegion.new(parent, start_triangles[i], _colors[i]))
+				_regions.append(SubRegion.new(parent, start_triangles[i], _colors[i], _rng.randi()))
 	
 	func update_data_tick(return_after: float) -> void:
 		while OS.get_ticks_msec() < return_after:
@@ -1007,10 +1032,12 @@ class SubRegionManager extends Stage:
 		return _regions_done and _borders_done
 	
 	func update_image(image: Image) -> void:
-		image.lock()
-		for region in _regions:
-			region.draw_triangles(image)
-		image.unlock()
+		# Don't draw these regions, unless we're still in the creation steps
+		if not update_complete():
+			image.lock()
+			for region in _regions:
+				region.draw_triangles(image)
+			image.unlock()
 		.update_image(image)
 	
 	func find_borders() -> void:
@@ -1034,22 +1061,29 @@ class RiverManager extends Stage:
 	var _river_color: Color
 	var _lake_color: Color
 	var _started: bool
+	var _rng: RandomNumberGenerator
 	
 	func _init(
-		grid: BaseGrid, subregion_manager: SubRegionManager, river_count: int, river_color: Color, lake_color: Color
+		grid: BaseGrid, subregion_manager: SubRegionManager, river_count: int, river_color: Color, lake_color: Color, rng_seed: int
 	) -> void:
 		_grid = grid
 		_subregion_manager = subregion_manager
 		_river_count = river_count
 		_river_color = river_color
 		_lake_color = lake_color
+		_rng = RandomNumberGenerator.new()
+		_rng.seed = rng_seed
 	
 	func _setup_rivers():
 		_rivers = []
+		
+		var near_center_edges := _grid.get_near_center_edges()
+		shuffle(_rng, near_center_edges)
+		
 		for _i in range(_river_count):
-			_rivers.append(create_river())
+			_rivers.append(create_river(near_center_edges.pop_back()))
 	
-	func update_data_tick(return_after: float) -> void:
+	func update_data_tick(_return_after: float) -> void:
 		if not _started:
 			_setup_rivers()
 			_started = true
@@ -1057,17 +1091,16 @@ class RiverManager extends Stage:
 	func update_complete() -> bool:
 		return _started
 	
-	func create_river() -> Array:
+	func create_river(start_edge: BaseLine) -> Array:
 		"""Create a chain of edges from near center to outer bounds"""
 		var center := _grid.get_center()
-		var start_edge := _grid.get_river_head()
 		var river := [start_edge]
 		# get furthest end from center, then extend the river until it hits the boundary
 		var connection_point: BasePoint = start_edge.end_point_farthest_from(center)
 		while len(connection_point.get_connections()) >= 6:
 			# Get a random edge that moves away from the center
 			var connections: Array = Array(connection_point.get_connections())
-			connections.shuffle()
+			shuffle(_rng, connections)
 			var try_edge : BaseLine = connections.pop_back()
 			while not connections.empty() and try_edge.end_point_farthest_from(center) == connection_point:
 				try_edge = connections.pop_back()
@@ -1107,15 +1140,15 @@ class RiverManager extends Stage:
 func _ready() -> void:
 	stage_pos = 0
 	var base_rng := RandomNumberGenerator.new()
-	base_rng.seed = OS.get_system_time_msecs()
+	base_rng.seed = OS.get_system_time_msecs()  # Fix this value for repeatability
 	
 	var base_grid := BaseGrid.new(CELL_EDGE, rect_size, GRID_COLOR)
 	var island_cells_target : int = (base_grid.get_cell_count() / 3)
-	var land_blob := TriBlob.new(base_grid, LAND_COLOR, COAST_COLOR, island_cells_target)
+	var land_blob := TriBlob.new(base_grid, LAND_COLOR, COAST_COLOR, island_cells_target, base_rng.randi())
 	var mouse_tracker := MouseTracker.new(base_grid, CURSOR_COLOR)
-	var region_manager := RegionManager.new(land_blob, REGION_COLORS)
-	var sub_regions_manager := SubRegionManager.new(region_manager, SUB_REGION_COLORS)
-	var river_manager := RiverManager.new(base_grid, sub_regions_manager, RIVER_COUNT, RIVER_COLOR, LAKE_COLOR)
+	var region_manager := RegionManager.new(land_blob, REGION_COLORS, base_rng.randi())
+	var sub_regions_manager := SubRegionManager.new(region_manager, SUB_REGION_COLORS, base_rng.randi())
+	var river_manager := RiverManager.new(base_grid, sub_regions_manager, RIVER_COUNT, RIVER_COLOR, LAKE_COLOR, base_rng.randi())
 	
 	stages = [
 		base_grid,
