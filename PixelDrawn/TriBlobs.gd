@@ -1,5 +1,7 @@
 extends TextureRect
 
+# Max CELL_EDGE <= min(rect_size.x * (2 / 3), rect_size.y * sqrt(16/27))
+# Max for (1024, 600) <= min(682.666666667, 461.880215352)
 const CELL_EDGE := 12.0
 const SEA_COLOR := Color8(32, 32, 64, 255)
 const BASE_COLOR := SEA_COLOR
@@ -414,7 +416,7 @@ class Stage extends Utils:
 		_cached_image = image.duplicate()
 	
 	func get_cached_stage_image() -> Image:
-		var return_cache : Image = _cached_image.duplicate() 
+		var return_cache : Image = _cached_image.duplicate()
 		return return_cache
 	
 	func update_mouse_coords(_mouse_coords: Vector2) -> void:
@@ -448,7 +450,7 @@ class BaseGrid extends Stage:
 		
 		# Lay out points and connect them to any existing points
 		var row_ind: int = 0
-		for y in range (0.0 + _tri_height, rect_size.y, _tri_height):
+		for y in range (_tri_height / 2.0, rect_size.y, _tri_height):
 			var points_row: Array = []
 			var ind_offset: int = (row_ind % 2) * 2 - 1
 			var offset: float = (row_ind % 2) * (_tri_side / 2.0)
@@ -506,7 +508,8 @@ class BaseGrid extends Stage:
 		a.add_connection(new_line)
 		b.add_connection(new_line)
 		_grid_lines.append(new_line)
-		if new_line.center_in_ring(_center, 0.0, CELL_EDGE * 10.0):
+		# Save a special ring of edges near the center for river heads
+		if new_line.center_in_ring(_center, 30.0, 30.0 + _tri_side):
 			_near_center_edges.append(new_line)
 		return new_line
 	
@@ -877,7 +880,7 @@ class RegionManager extends Stage:
 	
 	func _setup_regions() -> void:
 		var start_triangles = _parent.get_some_triangles(len(_colors))
-		for i in range(len(_colors)):
+		for i in range(min(len(_colors), len(start_triangles))):
 			_regions.append(Region.new(_parent, start_triangles[i], _colors[i], _rng.randi()))
 	
 	func update_data_tick(return_after: float) -> void:
@@ -1093,6 +1096,9 @@ class RiverManager extends Stage:
 	
 	func create_river(start_edge: BaseLine) -> Array:
 		"""Create a chain of edges from near center to outer bounds"""
+		if not start_edge:
+			return []
+		
 		var center := _grid.get_center()
 		var river := [start_edge]
 		# get furthest end from center, then extend the river until it hits the boundary
