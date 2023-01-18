@@ -41,6 +41,9 @@ class BasePoint:
 	var _pos: Vector2
 	var _connections: Array
 	var _polygons: Array
+	var _height_color_scale: float = 1.0 / 30.0
+	var _height_set: bool = false
+	var _height: float
 	
 	func _init(x: float, y: float) -> void:
 		_pos = Vector2(x, y)
@@ -116,6 +119,33 @@ class BasePoint:
 	
 	func get_connections() -> Array:
 		return _connections
+	
+	func get_connected_points() -> Array:
+		var connected_points := []
+		for con in _connections:
+			connected_points.append(con.other_point(self))
+		return connected_points
+	
+	func height_set() -> bool:
+		return _height_set
+	
+	func set_height(height: float) -> void:
+		_height_set = true
+		_height = height
+		
+	func get_height() -> float:
+		return _height
+	
+	func has_polygon_with_parent(parent: Object) -> bool:
+		for triangle in _polygons:
+			if triangle.get_parent() == parent:
+				return true
+		return false
+	
+	func draw_as_height(image: Image, color: Color) -> void:
+		var scaled_color = lerp(Color.black, color, (_height * _height_color_scale) + 0.5 )
+		if height_set():
+			image.set_pixelv(_pos, scaled_color)
 	
 	func _to_string() -> String:
 		return "%d: %s: { %s }" % [get_instance_id(), _pos, _get_line_ids()]
@@ -502,6 +532,10 @@ class BaseGrid extends Stage:
 	
 	func status_text() -> String:
 		return "Creating grid..."
+	
+	func get_point_rows() -> Array:
+		"""Returns the array of rows of points"""
+		return _grid_points
 	
 	func _add_grid_line(a: BasePoint, b: BasePoint) -> BaseLine:
 		var new_line := BaseLine.new(a, b)
@@ -1056,6 +1090,113 @@ class SubRegionManager extends Stage:
 		return null
 
 
+class PointHeightsManager extends Stage:
+	var _grid: BaseGrid
+	var _island: TriBlob
+	var _color: Color
+	var _diff_height: float = 1.0
+	var _sealevel_points: Array
+	var _downhill_front: Array
+	var _downhill_height: float = -_diff_height
+	var _uphill_front: Array
+	var _uphill_height: float = _diff_height
+	var _sealevel_started: bool
+	var _height_fronts_started: bool
+	var _downhill_complete: bool
+	var _uphill_complete: bool
+	
+	func _init(grid: BaseGrid, island: TriBlob, color: Color) -> void:
+		_grid = grid
+		_island = island
+		_color = color
+		_sealevel_started = false
+		_height_fronts_started = false
+		_downhill_complete = false
+		_uphill_complete = false
+	
+	func status_text() -> String:
+		return "Generating height map..."
+	
+	func _setup_sealevel() -> void:
+		_sealevel_points = []
+		for line in _island.get_perimeter_lines():
+			for point in line.get_points():
+				if not point in _sealevel_points:
+					point.set_height(0.0)
+					_sealevel_points.append(point)
+	
+	func _setup_height_fronts() -> void:
+		for center_point in _sealevel_points:
+			for point in center_point.get_connected_points():
+				if not point.height_set():
+					# Uphill or downhill neighbour?
+					if point.has_polygon_with_parent(_island):
+						point.set_height(_uphill_height)
+						_uphill_front.append(point)
+					else:
+						point.set_height(_downhill_height)
+						_downhill_front.append(point)
+	
+	func _step_downhill() -> void:
+		_downhill_height -= _diff_height
+		var new_downhill_front: Array = []
+		for center_point in _downhill_front:
+			for point in center_point.get_connected_points():
+				if not point.height_set():
+					point.set_height(_downhill_height)
+					new_downhill_front.append(point)
+		_downhill_front = new_downhill_front
+	
+	func _step_uphill() -> void:
+		# TODO: Take account of lakes (and rivers? or ignore?)
+		_uphill_height += _diff_height
+		var new_uphill_front: Array = []
+		for center_point in _uphill_front:
+			for point in center_point.get_connected_points():
+				if not point.height_set():
+					point.set_height(_uphill_height)
+					new_uphill_front.append(point)
+		_uphill_front = new_uphill_front
+	
+	func update_data_tick(return_after: float) -> void:
+		while OS.get_ticks_msec() < return_after:
+			if not _sealevel_started:
+				_setup_sealevel()
+				_sealevel_started = true
+				continue
+			
+			if not _height_fronts_started:
+				_setup_height_fronts()
+				_height_fronts_started = true
+				continue
+			
+			if not _downhill_complete:
+				_step_downhill()
+				if _downhill_front.empty():
+					_downhill_complete = true
+				continue
+			
+			if not _uphill_complete:
+				_step_uphill()
+				if _uphill_front.empty():
+					_uphill_complete = true
+				continue
+	
+	func update_complete() -> bool:
+		return _uphill_complete
+	
+	func _draw_points_as_heights(image):
+		for row in _grid.get_point_rows():
+			for point in row:
+				point.draw_as_height(image, _color)
+	
+	func update_image(image: Image):
+		image.lock()
+		_draw_points_as_heights(image)
+		image.unlock()
+		.update_image(image)
+
+
 class RiverManager extends Stage:
 	var _rivers: Array
 	var _grid: BaseGrid
@@ -1154,6 +1295,7 @@ func _ready() -> void:
 	var mouse_tracker := MouseTracker.new(base_grid, CURSOR_COLOR)
 	var region_manager := RegionManager.new(land_blob, REGION_COLORS, base_rng.randi())
 	var sub_regions_manager := SubRegionManager.new(region_manager, SUB_REGION_COLORS, base_rng.randi())
+	var height_manager := PointHeightsManager.new(base_grid, land_blob, Color8(255,255,255,255))
 	var river_manager := RiverManager.new(base_grid, sub_regions_manager, RIVER_COUNT, RIVER_COLOR, LAKE_COLOR, base_rng.randi())
 	
 	stages = [
@@ -1161,6 +1303,7 @@ func _ready() -> void:
 		land_blob,
 		region_manager,
 		sub_regions_manager,
+		height_manager,
 		river_manager,
 		mouse_tracker
 	]
