@@ -41,7 +41,7 @@ class BasePoint:
 	var _pos: Vector2
 	var _connections: Array
 	var _polygons: Array
-	var _height_color_scale: float = 1.0 / 30.0
+	var _height_color_scale: float = 1.0 / 10.0
 	var _height_set: bool = false
 	var _height: float
 	
@@ -428,6 +428,84 @@ class Utils:
 			var swap = target[i]
 			target[i] = target[j]
 			target[j] =swap
+	
+	static func _get_chains_from_lines(perimeter: Array) -> Array:
+		"""
+		Given an array of unordered BaseLines on the perimeter of a shape
+		Return an array, each element of which is an array of BaseLines ordered by
+		the path around the perimeter. One of the arrays will be the outer shape and the
+		rest will be internal "holes" in the shape.
+		"""
+		var perimeter_lines := perimeter.duplicate()
+		# Identify chains by tracking each point in series of perimeter lines
+		var chains: Array = []
+		while not perimeter_lines.empty():
+			# Next chain, pick the end of a line
+			var chain_done = false
+			var chain_flipped = false
+			var chain: Array = []
+			var next_chain_line: BaseLine = perimeter_lines.pop_back()
+			var start_chain_point: BasePoint = next_chain_line.get_points().front()
+			var next_chain_point: BasePoint = next_chain_line.other_point(start_chain_point)
+			# Follow the lines until we reach back to the beginning
+			while not chain_done:
+				chain.append(next_chain_line)
+				
+				# Do we have a complete chain now?
+				if len(chain) >= 3 and chain.front().shares_a_point_with(chain.back()):
+					chains.append(chain)
+					chain_done = true
+					continue
+				
+				# Which directions can we go from here?
+				var connections = next_chain_point.get_connections()
+				var directions: Array = []
+				for line in connections:
+					# Skip the current line
+					if line == next_chain_line:
+						continue
+					if perimeter_lines.has(line):
+						directions.append(line)
+				
+				# If there's no-where to go, something went wrong
+				if len(directions) <= 0:
+					printerr("FFS: This line goes nowhere!")
+				
+				# If there's only one way to go, go that way
+				elif len(directions) == 1:
+					next_chain_line = directions.front()
+					next_chain_point = next_chain_line.other_point(next_chain_point)
+					perimeter_lines.erase(next_chain_line)
+				
+				else:
+					# Any links that link back to start of the current chain?
+					var loop = false
+					for line in directions:
+						if line.other_point(next_chain_point) == start_chain_point:
+							loop = true
+							next_chain_line = line
+							next_chain_point = next_chain_line.other_point(next_chain_point)
+							perimeter_lines.erase(line)
+					
+					if not loop:
+						# Multiple directions with no obvious loop, 
+						# Reverse the chain to extend it in the opposite direction
+						if chain_flipped:
+							# This chain has already been flipped, both ends are trapped
+							# Push this chain back into the pool of lines and try again
+							chain.append_array(perimeter_lines)
+							perimeter_lines = chain
+							chain_done = true
+							continue
+						
+						chain.invert()
+						var old_start_point : BasePoint = start_chain_point
+						start_chain_point = next_chain_point
+						next_chain_line = chain.pop_back()
+						next_chain_point = old_start_point
+						chain_flipped = true
+		
+		return chains
 
 
 class Stage extends Utils:
@@ -636,84 +714,6 @@ class TriBlob extends Stage:
 		for cell in _cells:
 			cell.draw_triangle_on_image(image, color)
 		image.unlock()
-
-	static func _get_chains_from_lines(perimeter: Array) -> Array:
-		"""
-		Given an array of unordered BaseLines on the perimeter of a shape
-		Return an array, each element of which is an array of BaseLines ordered by
-		the path around the perimeter. One of the arrays will be the outer shape and the
-		rest will be internal "holes" in the shape.
-		"""
-		var perimeter_lines := perimeter.duplicate()
-		# Identify chains by tracking each point in series of perimeter lines
-		var chains: Array = []
-		while not perimeter_lines.empty():
-			# Next chain, pick the end of a line
-			var chain_done = false
-			var chain_flipped = false
-			var chain: Array = []
-			var next_chain_line: BaseLine = perimeter_lines.pop_back()
-			var start_chain_point: BasePoint = next_chain_line.get_points().front()
-			var next_chain_point: BasePoint = next_chain_line.other_point(start_chain_point)
-			# Follow the lines until we reach back to the beginning
-			while not chain_done:
-				chain.append(next_chain_line)
-				
-				# Do we have a complete chain now?
-				if len(chain) >= 3 and chain.front().shares_a_point_with(chain.back()):
-					chains.append(chain)
-					chain_done = true
-					continue
-				
-				# Which directions can we go from here?
-				var connections = next_chain_point.get_connections()
-				var directions: Array = []
-				for line in connections:
-					# Skip the current line
-					if line == next_chain_line:
-						continue
-					if perimeter_lines.has(line):
-						directions.append(line)
-				
-				# If there's no-where to go, something went wrong
-				if len(directions) <= 0:
-					printerr("FFS: This line goes nowhere!")
-				
-				# If there's only one way to go, go that way
-				elif len(directions) == 1:
-					next_chain_line = directions.front()
-					next_chain_point = next_chain_line.other_point(next_chain_point)
-					perimeter_lines.erase(next_chain_line)
-				
-				else:
-					# Any links that link back to start of the current chain?
-					var loop = false
-					for line in directions:
-						if line.other_point(next_chain_point) == start_chain_point:
-							loop = true
-							next_chain_line = line
-							next_chain_point = next_chain_line.other_point(next_chain_point)
-							perimeter_lines.erase(line)
-					
-					if not loop:
-						# Multiple directions with no obvious loop, 
-						# Reverse the chain to extend it in the opposite direction
-						if chain_flipped:
-							# This chain has already been flipped, both ends are trapped
-							# Push this chain back into the pool of lines and try again
-							chain.append_array(perimeter_lines)
-							perimeter_lines = chain
-							chain_done = true
-							continue
-						
-						chain.invert()
-						var old_start_point : BasePoint = start_chain_point
-						start_chain_point = next_chain_point
-						next_chain_line = chain.pop_back()
-						next_chain_point = old_start_point
-						chain_flipped = true
-		
-		return chains
 	
 	func _add_non_perimeter_boundaries() -> void:
 		"""
@@ -869,7 +869,7 @@ class Region extends Utils:
 		for cell in _cells:
 			cell.draw_triangle_on_image(image, _debug_color)
 	
-	func find_borders() -> void:
+	func expand_margins() -> void:
 		var border_cells: Array = []
 		for cell in _cells:
 			if cell.count_neighbours_with_parent(self) < 3:
@@ -896,7 +896,7 @@ class RegionManager extends Stage:
 	var _started: bool
 	var _regions: Array
 	var _regions_done: bool
-	var _borders_done: bool
+	var _margins_done: bool
 	var _rng: RandomNumberGenerator
 	
 	func _init(parent: TriBlob, colors: Array, rng_seed: int) -> void:
@@ -905,7 +905,7 @@ class RegionManager extends Stage:
 		_started = false
 		_regions = []
 		_regions_done = false
-		_borders_done = false
+		_margins_done = false
 		_rng = RandomNumberGenerator.new()
 		_rng.seed = rng_seed
 	
@@ -933,13 +933,13 @@ class RegionManager extends Stage:
 					_regions_done = true
 				continue
 			
-			if not _borders_done:
-				find_borders()
-				_borders_done = true
+			if not _margins_done:
+				expand_margins()
+				_margins_done = true
 			
 	
 	func update_complete() -> bool:
-		return _regions_done and _borders_done
+		return _regions_done and _margins_done
 	
 	func update_image(image: Image) -> void:
 		# Don't draw these regions, unless we're still in the creation steps
@@ -950,9 +950,9 @@ class RegionManager extends Stage:
 			image.unlock()
 		.update_image(image)
 	
-	func find_borders() -> void:
+	func expand_margins() -> void:
 		for region in _regions:
-			region.find_borders()
+			region.expand_margins()
 	
 	func get_regions() -> Array:
 		return _regions
@@ -962,6 +962,8 @@ class SubRegion extends Utils:
 	var _parent: Region
 	var _debug_color: Color
 	var _cells: Array
+	var _perimeter_points: Array
+	var _inner_perimeter: Array
 	var _region_front: Array
 	var _rng: RandomNumberGenerator
 	
@@ -969,6 +971,7 @@ class SubRegion extends Utils:
 		_parent = parent
 		_debug_color = debug_color
 		_cells = []
+		_perimeter_points = []
 		_region_front = [start_triangle]
 		_rng = RandomNumberGenerator.new()
 		_rng.seed = rng_seed
@@ -998,7 +1001,7 @@ class SubRegion extends Utils:
 		for cell in _cells:
 			cell.draw_triangle_on_image(image, color)
 	
-	func find_borders() -> void:
+	func expand_margins() -> void:
 		var border_cells: Array = []
 		for cell in _cells:
 			if cell.count_neighbours_with_parent(self) < 3:
@@ -1014,6 +1017,36 @@ class SubRegion extends Utils:
 		for _i in range(count):
 			random_cells.append(_cells[_rng.randi() % len(_cells)])
 		return random_cells
+	
+	func _get_points_in_region() -> Array:
+		"""Get all the points within the region"""
+		var points: Array = []
+		for triangle in _cells:
+			for point in triangle.get_points():
+				if not point in points:
+					points.append(point)
+		return points
+	
+	func identify_perimeter_points() -> void:
+		var region_points : Array = _get_points_in_region()
+		for point in region_points:
+			if point.has_polygon_with_parent(_parent):
+				_perimeter_points.append(point)
+		
+		for outer_point in _perimeter_points:
+			for point in outer_point.get_connected_points():
+				if (
+					not point in _perimeter_points 
+					and point in region_points
+					and not point in _inner_perimeter
+				):
+					_inner_perimeter.append(point)
+	
+	func get_outer_perimeter_points() -> Array:
+		return _perimeter_points
+	
+	func get_inner_perimeter_points() -> Array:
+		return _inner_perimeter
 
 
 class SubRegionManager extends Stage:
@@ -1022,7 +1055,8 @@ class SubRegionManager extends Stage:
 	var _started: bool
 	var _regions: Array
 	var _regions_done: bool
-	var _borders_done: bool
+	var _margins_done: bool
+	var _perimeters_done: bool
 	var _rng: RandomNumberGenerator
 	
 	func _init(parent_manager: RegionManager, colors: Array, rng_seed: int) -> void:
@@ -1031,13 +1065,14 @@ class SubRegionManager extends Stage:
 		_started = false
 		_regions = []
 		_regions_done = false
-		_borders_done = false
+		_margins_done = false
+		_perimeters_done = false
 		_rng = RandomNumberGenerator.new()
 		_rng.seed = rng_seed
 	
 	func status_text() -> String:
 		return "Sub sectioning the sections of the island..."
-
+	
 	func _setup_subregions() -> void:
 		for parent in _parent_manager.get_regions():
 			# The parent region might not be big enought to have subregions
@@ -1061,12 +1096,16 @@ class SubRegionManager extends Stage:
 					_regions_done = true
 				continue
 			
-			if not _borders_done:
-				find_borders()
-				_borders_done = true
+			if not _margins_done:
+				expand_margins()
+				_margins_done = true
+			
+			if not _perimeters_done:
+				identify_perimeters()
+				_perimeters_done = true
 	
 	func update_complete() -> bool:
-		return _regions_done and _borders_done
+		return _perimeters_done
 	
 	func update_image(image: Image) -> void:
 		# Don't draw these regions, unless we're still in the creation steps
@@ -1077,22 +1116,32 @@ class SubRegionManager extends Stage:
 			image.unlock()
 		.update_image(image)
 	
-	func find_borders() -> void:
+	func expand_margins() -> void:
 		for region in _regions:
-			region.find_borders()
+			region.expand_margins()
+	
+	func identify_perimeters() -> void:
+		for region in _regions:
+			region.identify_perimeter_points()
 	
 	func sub_region_for_edge(edge: BaseLine):
 		for tri in edge.get_bordering_triangles():
 			var sub_region = tri.get_parent()
 			if sub_region in _regions:
 				return sub_region
-		
+		return null
+	
+	func sub_region_for_point(point: BasePoint):
+		for region in _regions:
+			if point.has_polygon_with_parent(region):
+				return region
 		return null
 
 
 class PointHeightsManager extends Stage:
 	var _grid: BaseGrid
 	var _island: TriBlob
+	var _lake_manager: SubRegionManager
 	var _color: Color
 	var _diff_height: float = 1.0
 	var _sealevel_points: Array
@@ -1105,9 +1154,10 @@ class PointHeightsManager extends Stage:
 	var _downhill_complete: bool
 	var _uphill_complete: bool
 	
-	func _init(grid: BaseGrid, island: TriBlob, color: Color) -> void:
+	func _init(grid: BaseGrid, island: TriBlob, lake_manager: SubRegionManager, color: Color) -> void:
 		_grid = grid
 		_island = island
+		_lake_manager = lake_manager
 		_color = color
 		_sealevel_started = false
 		_height_fronts_started = false
@@ -1154,9 +1204,28 @@ class PointHeightsManager extends Stage:
 		for center_point in _uphill_front:
 			for point in center_point.get_connected_points():
 				if not point.height_set():
-					point.set_height(_uphill_height)
 					new_uphill_front.append(point)
+					# If this point is on a sub-region lake,
+					var lake : SubRegion = _lake_manager.sub_region_for_point(point)
+					if lake:
+						#  add the perimeter points to the uphill
+						new_uphill_front.append_array(lake.get_outer_perimeter_points())
+						
+						# and any inside points to the downhill,
+						var inside_points : Array = lake.get_inner_perimeter_points()
+						if not inside_points.empty():
+							#  reset the downhill state, and set the downhill height
+							_downhill_height = _uphill_height - _diff_height
+							_downhill_front.append_array(inside_points)
+							_downhill_complete = false
+		
+		for point in new_uphill_front:
+			point.set_height(_uphill_height)
 		_uphill_front = new_uphill_front
+			
+		if not _downhill_front.empty():
+			for point in _downhill_front:
+				point.set_height(_downhill_height)
 	
 	func update_data_tick(return_after: float) -> void:
 		while OS.get_ticks_msec() < return_after:
@@ -1295,8 +1364,8 @@ func _ready() -> void:
 	var mouse_tracker := MouseTracker.new(base_grid, CURSOR_COLOR)
 	var region_manager := RegionManager.new(land_blob, REGION_COLORS, base_rng.randi())
 	var sub_regions_manager := SubRegionManager.new(region_manager, SUB_REGION_COLORS, base_rng.randi())
-	var height_manager := PointHeightsManager.new(base_grid, land_blob, Color8(255,255,255,255))
-	var river_manager := RiverManager.new(base_grid, sub_regions_manager, RIVER_COUNT, RIVER_COLOR, LAKE_COLOR, base_rng.randi())
+	var height_manager := PointHeightsManager.new(base_grid, land_blob, sub_regions_manager, Color8(255,255,255,255))
+#	var river_manager := RiverManager.new(base_grid, sub_regions_manager, RIVER_COUNT, RIVER_COLOR, LAKE_COLOR, base_rng.randi())
 	
 	stages = [
 		base_grid,
@@ -1304,7 +1373,7 @@ func _ready() -> void:
 		region_manager,
 		sub_regions_manager,
 		height_manager,
-		river_manager,
+#		river_manager,
 		mouse_tracker
 	]
 
