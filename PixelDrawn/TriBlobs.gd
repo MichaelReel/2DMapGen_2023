@@ -2,7 +2,7 @@ extends TextureRect
 
 # Max CELL_EDGE <= min(rect_size.x * (2 / 3), rect_size.y * sqrt(16/27))
 # Max for (1024, 600) <= min(682.666666667, 461.880215352)
-const CELL_EDGE := 12.0
+const CELL_EDGE := 10.0
 const SEA_COLOR := Color8(32, 32, 64, 255)
 const BASE_COLOR := SEA_COLOR
 const GRID_COLOR := Color8(40, 40, 96, 255)
@@ -63,6 +63,9 @@ class BasePoint:
 		elif a._pos.y == b._pos.y and a._pos.x < b._pos.x:
 				return true
 		return false
+	
+	static func sort_height(a: BasePoint, b: BasePoint) -> bool:
+		return a._height > b._height
 	
 	func equals(other: BasePoint) -> bool:
 		return self._pos == other._pos
@@ -967,6 +970,7 @@ class SubRegion extends Utils:
 	var _inner_perimeter: Array
 	var _region_front: Array
 	var _exit_point: BasePoint
+	var _water_height: float
 	var _rng: RandomNumberGenerator
 	
 	func _init(parent: Region, start_triangle: BaseTriangle, debug_color: Color, rng_seed: int) -> void:
@@ -1053,8 +1057,14 @@ class SubRegion extends Utils:
 	func has_exit_point() -> bool:
 		return true if _exit_point else false
 		
-	func set_exit_point(point) -> void:
+	func set_exit_point(point: BasePoint) -> void:
 		_exit_point = point
+		
+	func get_exit_point() -> BasePoint:
+		return _exit_point
+	
+	func set_water_height(water_height: float) -> void:
+		_water_height = water_height
 
 
 class SubRegionManager extends Stage:
@@ -1116,12 +1126,12 @@ class SubRegionManager extends Stage:
 		return _perimeters_done
 	
 	func update_image(image: Image) -> void:
-		# Don't draw these regions, unless we're still in the creation steps
-		if not update_complete():
-			image.lock()
-			for region in _regions:
-				region.draw_triangles(image)
-			image.unlock()
+#		# Don't draw these regions, unless we're still in the creation steps
+#		if not update_complete():
+		image.lock()
+		for region in _regions:
+			region.draw_triangles(image)
+		image.unlock()
 		.update_image(image)
 	
 	func expand_margins() -> void:
@@ -1144,6 +1154,13 @@ class SubRegionManager extends Stage:
 			if point.has_polygon_with_parent(region):
 				return region
 		return null
+	
+	func get_subregion_output_map() -> Dictionary:
+		var outputs: Dictionary = {}
+		for region in _regions:
+			if region.has_exit_point():
+				outputs[region] = region.get_exit_point()
+		return outputs
 
 
 class PointHeightsManager extends Stage:
@@ -1215,14 +1232,15 @@ class PointHeightsManager extends Stage:
 					# If this point is on a sub-region lake,
 					var lake : SubRegion = _lake_manager.sub_region_for_point(point)
 					if lake and not lake.has_exit_point():
+						# Assume water can exit on this side, and lake is at this height
 						lake.set_exit_point(point)
-						#  add the perimeter points to the uphill
+						lake.set_water_height(_uphill_height)
+						# Add the lake perimeter points to the uphill
 						new_uphill_front.append_array(lake.get_outer_perimeter_points())
-						
-						# and any inside points to the downhill,
+						# Add any inside points to the downhill
 						var inside_points : Array = lake.get_inner_perimeter_points()
 						if not inside_points.empty():
-							#  reset the downhill state, and set the downhill height
+							# Reset the downhill state, and set the downhill height
 							_downhill_height = _uphill_height - _diff_height
 							_downhill_front.append_array(inside_points)
 							_downhill_complete = false
@@ -1298,11 +1316,24 @@ class RiverManager extends Stage:
 	func _setup_rivers():
 		_rivers = []
 		
-		var near_center_edges := _grid.get_near_center_edges()
-		shuffle(_rng, near_center_edges)
+		var lake_outlet_points: Dictionary = _subregion_manager.get_subregion_output_map()
+		# For each outlet, get the lowest downhill point not _inside_ the lake
+		for lake in lake_outlet_points.keys():
+			var outlet_point: BasePoint = lake_outlet_points[lake]
+			var neighbour_points = outlet_point.get_connected_points()
+			neighbour_points.sort_custom(BasePoint, "sort_height")
+			for neighbour in neighbour_points:
+				if neighbour.has_polygon_with_parent(lake):
+					continue
+				_rivers.append(create_river(outlet_point.connection_to_point(neighbour)))
+				break
 		
-		for _i in range(_river_count):
-			_rivers.append(create_river(near_center_edges.pop_back()))
+		
+#		var near_center_edges := _grid.get_near_center_edges()
+#		shuffle(_rng, near_center_edges)
+#
+#		for _i in range(_river_count):
+#			_rivers.append(create_river(near_center_edges.pop_back()))
 	
 	func update_data_tick(_return_after: float) -> void:
 		if not _started:
@@ -1319,22 +1350,22 @@ class RiverManager extends Stage:
 		
 		var center := _grid.get_center()
 		var river := [start_edge]
-		# get furthest end from center, then extend the river until it hits the boundary
-		var connection_point: BasePoint = start_edge.end_point_farthest_from(center)
-		while len(connection_point.get_connections()) >= 6:
-			# Get a random edge that moves away from the center
-			var connections: Array = Array(connection_point.get_connections())
-			shuffle(_rng, connections)
-			var try_edge : BaseLine = connections.pop_back()
-			while not connections.empty() and try_edge.end_point_farthest_from(center) == connection_point:
-				try_edge = connections.pop_back()
-			# This shouldn't happen:
-			if try_edge.end_point_farthest_from(center) == connection_point:
-				printerr("All edges point towards the center")
-			
-			# Move along the random edge
-			river.append(try_edge)
-			connection_point = try_edge.other_point(connection_point)
+#		# get furthest end from center, then extend the river until it hits the boundary
+#		var connection_point: BasePoint = start_edge.end_point_farthest_from(center)
+#		while len(connection_point.get_connections()) >= 6:
+#			# Get a random edge that moves away from the center
+#			var connections: Array = Array(connection_point.get_connections())
+#			shuffle(_rng, connections)
+#			var try_edge : BaseLine = connections.pop_back()
+#			while not connections.empty() and try_edge.end_point_farthest_from(center) == connection_point:
+#				try_edge = connections.pop_back()
+#			# This shouldn't happen:
+#			if try_edge.end_point_farthest_from(center) == connection_point:
+#				printerr("All edges point towards the center")
+#
+#			# Move along the random edge
+#			river.append(try_edge)
+#			connection_point = try_edge.other_point(connection_point)
 		
 		return river
 	
