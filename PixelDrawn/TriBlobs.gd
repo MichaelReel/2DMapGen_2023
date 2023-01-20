@@ -107,7 +107,7 @@ class BasePoint:
 	
 	func get_cornering_triangles() -> Array:
 		return _polygons
-		
+	
 	func _get_line_ids() -> String:
 		var ids_string : String = ""
 		var first := true
@@ -132,7 +132,7 @@ class BasePoint:
 	func set_height(height: float) -> void:
 		_height_set = true
 		_height = height
-		
+	
 	func get_height() -> float:
 		return _height
 	
@@ -303,7 +303,7 @@ class BaseTriangle:
 				if tri != self and tri.get_parent() == parent:
 					borders.append(edge)
 		return borders
-		
+	
 	func is_on_field_boundary() -> bool:
 		return len(_neighbours) < len(_edges)
 	
@@ -422,6 +422,7 @@ class BaseTriangle:
 
 
 class Utils:
+	
 	static func shuffle(rng: RandomNumberGenerator, target: Array) -> void:
 		for i in range(len(target)):
 			var j: int = rng.randi_range(0, len(target) - 1)
@@ -965,6 +966,7 @@ class SubRegion extends Utils:
 	var _perimeter_points: Array
 	var _inner_perimeter: Array
 	var _region_front: Array
+	var _exit_point: BasePoint
 	var _rng: RandomNumberGenerator
 	
 	func _init(parent: Region, start_triangle: BaseTriangle, debug_color: Color, rng_seed: int) -> void:
@@ -1047,6 +1049,12 @@ class SubRegion extends Utils:
 	
 	func get_inner_perimeter_points() -> Array:
 		return _inner_perimeter
+	
+	func has_exit_point() -> bool:
+		return true if _exit_point else false
+		
+	func set_exit_point(point) -> void:
+		_exit_point = point
 
 
 class SubRegionManager extends Stage:
@@ -1198,7 +1206,6 @@ class PointHeightsManager extends Stage:
 		_downhill_front = new_downhill_front
 	
 	func _step_uphill() -> void:
-		# TODO: Take account of lakes (and rivers? or ignore?)
 		_uphill_height += _diff_height
 		var new_uphill_front: Array = []
 		for center_point in _uphill_front:
@@ -1207,7 +1214,8 @@ class PointHeightsManager extends Stage:
 					new_uphill_front.append(point)
 					# If this point is on a sub-region lake,
 					var lake : SubRegion = _lake_manager.sub_region_for_point(point)
-					if lake:
+					if lake and not lake.has_exit_point():
+						lake.set_exit_point(point)
 						#  add the perimeter points to the uphill
 						new_uphill_front.append_array(lake.get_outer_perimeter_points())
 						
@@ -1365,7 +1373,7 @@ func _ready() -> void:
 	var region_manager := RegionManager.new(land_blob, REGION_COLORS, base_rng.randi())
 	var sub_regions_manager := SubRegionManager.new(region_manager, SUB_REGION_COLORS, base_rng.randi())
 	var height_manager := PointHeightsManager.new(base_grid, land_blob, sub_regions_manager, Color8(255,255,255,255))
-#	var river_manager := RiverManager.new(base_grid, sub_regions_manager, RIVER_COUNT, RIVER_COLOR, LAKE_COLOR, base_rng.randi())
+	var river_manager := RiverManager.new(base_grid, sub_regions_manager, RIVER_COUNT, RIVER_COLOR, LAKE_COLOR, base_rng.randi())
 	
 	stages = [
 		base_grid,
@@ -1373,7 +1381,7 @@ func _ready() -> void:
 		region_manager,
 		sub_regions_manager,
 		height_manager,
-#		river_manager,
+		river_manager,
 		mouse_tracker
 	]
 
