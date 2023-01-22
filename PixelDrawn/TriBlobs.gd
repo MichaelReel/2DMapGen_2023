@@ -8,10 +8,10 @@ const BASE_COLOR := SEA_COLOR
 const GRID_COLOR := Color8(40, 40, 96, 255)
 const COAST_COLOR := Color8(128, 128, 32, 255)
 const LAKE_COLOR := SEA_COLOR
-const RIVER_COLOR := Color8(128, 32, 32, 255) 
+const RIVER_COLOR := Color8(255, 255, 255, 255)  # Color8(128, 32, 32, 255) 
 const LAND_COLOR := Color8(32, 128, 32, 255)
 const CURSOR_COLOR := Color8(128, 32, 128, 255)
-const RIVER_COUNT := 8
+const RIVER_COUNT := 30
 
 const REGION_COLORS := [
 	Color8(  0,   0, 192, 255),
@@ -65,7 +65,7 @@ class BasePoint:
 		return false
 	
 	static func sort_height(a: BasePoint, b: BasePoint) -> bool:
-		return a._height > b._height
+		return a._height <= b._height
 	
 	func equals(other: BasePoint) -> bool:
 		return self._pos == other._pos
@@ -158,6 +158,7 @@ class BaseLine:
 	var _a: BasePoint
 	var _b: BasePoint
 	var _borders: Array
+	var _river: Array
 	
 	func _init(a: BasePoint, b: BasePoint) -> void:
 		if BasePoint.sort_vert_inv_hortz(a, b):
@@ -230,6 +231,15 @@ class BaseLine:
 			return _a
 		else:
 			return _b
+	
+	func lowest_end_point() -> BasePoint:
+		return _a if _a.get_height() < _b.get_height() else _b
+
+	func set_river(river: Array) -> void:
+		_river = river
+	
+	func has_river() -> bool:
+		return true if _river else false
 	
 	func _to_string() -> String:
 		return "%d: { %d -> %d }" % [get_instance_id(), _a.get_instance_id(), _b.get_instance_id()]
@@ -664,6 +674,17 @@ class BaseGrid extends Stage:
 	
 	func get_near_center_edges() -> Array:
 		return _near_center_edges.duplicate()
+	
+	func _point_is_not_sea(point: BasePoint) -> bool:
+		return not point.has_polygon_with_parent(null)
+	
+	func get_island_points() -> Array:
+		var point_list: Array = []
+		for row in _grid_points:
+			for point in row:
+				if _point_is_not_sea(point):
+					point_list.append(point)
+		return point_list
 	
 	func get_center() -> Vector2:
 		return _center
@@ -1155,12 +1176,27 @@ class SubRegionManager extends Stage:
 				return region
 		return null
 	
+	func point_has_subregion(point: BasePoint) -> bool:
+		return true if sub_region_for_point(point) else false
+	
 	func get_subregion_output_map() -> Dictionary:
 		var outputs: Dictionary = {}
 		for region in _regions:
 			if region.has_exit_point():
 				outputs[region] = region.get_exit_point()
 		return outputs
+		
+	func point_in_water_body(point: BasePoint) -> bool:
+		if point_has_subregion(point) or point.has_polygon_with_parent(null):
+			return true
+		return false
+	
+	func filter_points_no_subregion(points: Array) -> Array:
+		var filtered_points: Array = []
+		for point in points:
+			if not point_has_subregion(point):
+				filtered_points.append(point)
+		return filtered_points
 
 
 class PointHeightsManager extends Stage:
@@ -1303,7 +1339,12 @@ class RiverManager extends Stage:
 	var _rng: RandomNumberGenerator
 	
 	func _init(
-		grid: BaseGrid, subregion_manager: SubRegionManager, river_count: int, river_color: Color, lake_color: Color, rng_seed: int
+		grid: BaseGrid,
+		subregion_manager: SubRegionManager,
+		river_count: int,
+		river_color: Color,
+		lake_color: Color,
+		rng_seed: int
 	) -> void:
 		_grid = grid
 		_subregion_manager = subregion_manager
@@ -1325,15 +1366,26 @@ class RiverManager extends Stage:
 			for neighbour in neighbour_points:
 				if neighbour.has_polygon_with_parent(lake):
 					continue
-				_rivers.append(create_river(outlet_point.connection_to_point(neighbour)))
+				var river = create_river(outlet_point.connection_to_point(neighbour))
+				if not river.empty():
+					_rivers.append(river)
 				break
 		
-		
-#		var near_center_edges := _grid.get_near_center_edges()
-#		shuffle(_rng, near_center_edges)
-#
-#		for _i in range(_river_count):
-#			_rivers.append(create_river(near_center_edges.pop_back()))
+		# Include some random points that are not in a lake or river already
+		var island_points = _grid.get_island_points()
+		island_points = _subregion_manager.filter_points_no_subregion(island_points)
+		shuffle(_rng, island_points)
+		if len(island_points) > _river_count:
+			island_points.resize(_river_count)
+		for island_point in island_points:
+			var neighbour_points = island_point.get_connected_points()
+			neighbour_points.sort_custom(BasePoint, "sort_height")
+			for neighbour in neighbour_points:
+				var river = create_river(island_point.connection_to_point(neighbour))
+				if not river.empty():
+					_rivers.append(river)
+				break
+			
 	
 	func update_data_tick(_return_after: float) -> void:
 		if not _started:
@@ -1344,50 +1396,38 @@ class RiverManager extends Stage:
 		return _started
 	
 	func create_river(start_edge: BaseLine) -> Array:
-		"""Create a chain of edges from near center to outer bounds"""
+		"""Create a chain of edges that represent a river"""
 		if not start_edge:
 			return []
 		
-		var center := _grid.get_center()
-		var river := [start_edge]
-#		# get furthest end from center, then extend the river until it hits the boundary
-#		var connection_point: BasePoint = start_edge.end_point_farthest_from(center)
-#		while len(connection_point.get_connections()) >= 6:
-#			# Get a random edge that moves away from the center
-#			var connections: Array = Array(connection_point.get_connections())
-#			shuffle(_rng, connections)
-#			var try_edge : BaseLine = connections.pop_back()
-#			while not connections.empty() and try_edge.end_point_farthest_from(center) == connection_point:
-#				try_edge = connections.pop_back()
-#			# This shouldn't happen:
-#			if try_edge.end_point_farthest_from(center) == connection_point:
-#				printerr("All edges point towards the center")
-#
-#			# Move along the random edge
-#			river.append(try_edge)
-#			connection_point = try_edge.other_point(connection_point)
+		var river: Array = []
+		# Get the downhill end, then extend until we hit the coast or a lake
+		var next_edge: BaseLine = start_edge
+		var connection_point: BasePoint = next_edge.lowest_end_point()
+		while (
+			not _subregion_manager.point_in_water_body(connection_point)
+			and not next_edge.has_river()
+		):
+			river.append(next_edge)
+			next_edge.set_river(river)
+			# Find the next lowest connected point
+			var neighbour_points = connection_point.get_connected_points()
+			neighbour_points.sort_custom(BasePoint, "sort_height")
+			var lowest_neighbour = neighbour_points.front()
+			next_edge = connection_point.connection_to_point(lowest_neighbour)
+			connection_point = lowest_neighbour
 		
+		# Add the last step, unless it's already a river
+		if not next_edge.has_river():
+			river.append(next_edge)
+			next_edge.set_river(river)
 		return river
 	
-	func identify_lakes_on_course(river: Array) -> Array:
-		# TODO: Need to modify - want to only draw the river parts that aren't between 
-		# the first entry edge on the lake and the last exit edge on the lake
-		# Maybe even split rivers
-		var lakes := []
-		for edge in river:
-			var lake = _subregion_manager.sub_region_for_edge(edge)
-			if lake != null and not lake in lakes:
-				lakes.append(lake)
-		return lakes
-		
 	func update_image(image: Image) -> void:
 		image.lock()
 		for river in _rivers:
 			for edge in river:
 				edge.draw_line_on_image(image, _river_color)
-			var lakes := identify_lakes_on_course(river)
-			for lake in lakes:
-				lake.draw_triangles(image, _lake_color)
 		image.unlock()
 		.update_image(image)
 
