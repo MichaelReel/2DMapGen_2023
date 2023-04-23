@@ -10,8 +10,8 @@ const FRAME_DATA_TIME_MILLIS := 15  # Millis spent on each data update tick
 var stages: Array
 var stage_pos: int
 
-onready var status_label := $RichTextLabel
-onready var imageTexture := ImageTexture.new()
+@onready var status_label := $RichTextLabel
+@onready var imageTexture := ImageTexture.new()
 
 
 class Stage:
@@ -32,30 +32,33 @@ class Stage:
 	func get_cached_stage_image() -> Image:
 		return _cached_image
 	
-	static func draw_line_on_image(image: Image, a: Vector2, b: Vector2, col: Color) -> void:
+	static func draw_line_on_image(image: Image, a: Vector2i, b: Vector2i, col: Color) -> void:
 		var longest_side = int(max(abs(a.x - b.x), abs(a.y - b.y))) + 1
 		for p in range(longest_side):
 			var t = (1.0 / longest_side) * p
-			image.set_pixelv(lerp(a, b, t), col)
+			image.set_pixelv(v2i_lerp(a, b, t), col)
 
-	static func get_off_center_point_between(a: Vector2, b: Vector2, rng: RandomNumberGenerator, spread: float) -> Vector2:
-		var mid_point = lerp(a, b, 0.5)
-		var tangent = (b - a).tangent()
-		return mid_point + tangent * (rng.randf() - 0.5) * spread
+	static func get_off_center_point_between(a: Vector2i, b: Vector2i, rng: RandomNumberGenerator, spread: float) -> Vector2i:
+		var mid_point = Vector2(a).lerp(Vector2(b), 0.5)
+		var orthogonal = Vector2(b - a).orthogonal()
+		return Vector2i(mid_point + orthogonal * (rng.randf() - 0.5) * spread)
 
-	static func split_long_path_segments(path: PoolVector2Array, max_length: float, rng: RandomNumberGenerator, spread: float) -> PoolVector2Array:
+	static func split_long_path_segments(path: Array[Vector2i], max_length: float, rng: RandomNumberGenerator, spread: float) -> Array[Vector2i]:
 		var max_length_squared = max_length * max_length
-		var new_point_list := PoolVector2Array()
+		var new_point_list: Array[Vector2i] = []
 		for i in range(len(path) - 1):
-			var a: Vector2 = path[i]
-			var b: Vector2 = path[i + 1]
+			var a: Vector2i = path[i]
+			var b: Vector2i = path[i + 1]
 			new_point_list.append(a)
-			if a.distance_squared_to(b) >= max_length_squared:
+			if Vector2(a).distance_squared_to(Vector2(b)) >= max_length_squared:
 				new_point_list.append(get_off_center_point_between(a, b, rng, spread))
 		
 		# Re-add the final point and return
 		new_point_list.append(path[len(path) - 1])
 		return new_point_list
+	
+	static func v2i_lerp(a: Vector2i, b: Vector2i, weight: float) -> Vector2i:
+		return Vector2i(Vector2(a).lerp(Vector2(b), weight))
 
 class SetupStage extends Stage:
 	var _color: Color
@@ -68,11 +71,11 @@ class SetupStage extends Stage:
 	
 	func update_image(image: Image) -> void:
 		image.fill(_color)
-		.update_image(image)
+		super.update_image(image)
 
 
 class CoastStage extends Stage:
-	var _coast_points: PoolVector2Array
+	var _coast_points: Array[Vector2i]
 	var _color: Color
 	var _rng: RandomNumberGenerator
 	var _complete: bool
@@ -80,10 +83,10 @@ class CoastStage extends Stage:
 	var _spread: float
 
 	func _init(screen_size: Vector2, color: Color, rng_seed: int) -> void:
-		_coast_points = PoolVector2Array([
-			Vector2(0.0, screen_size.y / 2.0),
-			Vector2(screen_size.x, screen_size.y / 2.0),
-		])
+		_coast_points = [
+			Vector2i(0, screen_size.y / 2),
+			Vector2i(screen_size.x, screen_size.y / 2),
+		]
 		_color = color
 		_rng = RandomNumberGenerator.new()
 		_rng.seed = rng_seed
@@ -94,14 +97,12 @@ class CoastStage extends Stage:
 		return "Drawing coast..."
 	
 	func update_image(image: Image) -> void:
-		image.lock()
 		_draw_coast_segments_on_image(image, _color)
-		image.unlock()
-		.update_image(image)
+		super.update_image(image)
 	
 	func update_data_tick(return_after: float) -> void:
-		while OS.get_ticks_msec() < return_after and not _complete:
-			var new_coast_points := split_long_path_segments(_coast_points, _segment_length, _rng, _spread)
+		while Time.get_ticks_msec() < return_after and not _complete:
+			var new_coast_points := Stage.split_long_path_segments(_coast_points, _segment_length, _rng, _spread)
 			if len(new_coast_points) > len(_coast_points):
 				_coast_points = new_coast_points
 			else:
@@ -114,23 +115,23 @@ class CoastStage extends Stage:
 		for i in range(len(_coast_points) - 1):
 			var a = _coast_points[i]
 			var b = _coast_points[i + 1]
-			draw_line_on_image(image, a, b, color)
+			Stage.draw_line_on_image(image, a, b, color)
 	
-	func get_coast_points() -> PoolVector2Array:
+	func get_coast_points() -> PackedVector2Array:
 		return _coast_points
 
 
 class RiverComponentStage extends Stage:
-	var _mouth: Vector2
-	var _head: Vector2
+	var _mouth: Vector2i
+	var _head: Vector2i
 	
-	func _init(mouth: Vector2, head: Vector2) -> void:
+	func _init(mouth: Vector2i, head: Vector2i) -> void:
 		_mouth = mouth
 		_head = head
 	
 	func draw_river_segments_on_image(image: Image, color: Color) -> void:
 		# Temp
-		draw_line_on_image(image, _mouth, _head, color)
+		Stage.draw_line_on_image(image, _mouth, _head, color)
 
 
 class RiverStage extends Stage:
@@ -168,10 +169,8 @@ class RiverStage extends Stage:
 		return "Drawing rivers..."
 	
 	func update_image(image: Image) -> void:
-		image.lock()
 		_draw_rivers_on_image(image, _color)
-		image.unlock()
-		.update_image(image)
+		super.update_image(image)
 	
 	func _draw_rivers_on_image(image: Image, color: Color) -> void:
 		for river in _rivers:
@@ -196,10 +195,10 @@ class RiverStage extends Stage:
 func _ready() -> void:
 	stage_pos = 0
 	var base_rng := RandomNumberGenerator.new()
-	base_rng.seed = OS.get_system_time_msecs()
+	base_rng.seed = int(Time.get_unix_time_from_system() * 1000) # OS.get_system_time_msecs()
 	
 	var background := SetupStage.new(SEA_COLOR)
-	var coast_line := CoastStage.new(rect_size, COAST_COLOR, base_rng.randi())
+	var coast_line := CoastStage.new(size, COAST_COLOR, base_rng.randi())
 	var rivers := RiverStage.new(coast_line, RIVER_COLOR, base_rng.randi(), 5)
 	
 	stages = [
@@ -215,17 +214,15 @@ func _process(_delta) -> void:
 		var previous_stage: Stage = stages[stage_pos - 1]
 		image = previous_stage.get_cached_stage_image()
 	else:
-		image = Image.new()
-		image.create(int(rect_size.x), int(rect_size.y), false, Image.FORMAT_RGBA8)
+		image = Image.create(int(size.x), int(size.y), false, Image.FORMAT_RGBA8)
 	
 	# Play the current stage ontop of the previous image
 	var current_stage: Stage = stages[stage_pos]
-	status_label.bbcode_text = current_stage.status_text()
-	var return_after: float = OS.get_ticks_msec() + FRAME_DATA_TIME_MILLIS
+	status_label.text = current_stage.status_text()
+	var return_after: float = Time.get_ticks_msec() + FRAME_DATA_TIME_MILLIS
 	current_stage.update_data_tick(return_after)
 	current_stage.update_image(image)
-	imageTexture.create_from_image(image)
-	texture = imageTexture
+	texture = ImageTexture.create_from_image(image)
 
 	# Advance to the next stage if the current is complete and there are more stages
 	if stage_pos < len(stages) - 1 and current_stage.update_complete(): 

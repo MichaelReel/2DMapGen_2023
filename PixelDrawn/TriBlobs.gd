@@ -34,8 +34,8 @@ const SLOPE := sqrt(1.0 / 3.0)
 var stages: Array
 var stage_pos: int
 
-onready var status_label := $RichTextLabel
-onready var imageTexture := ImageTexture.new()
+@onready var status_label := $RichTextLabel
+@onready var imageTexture := ImageTexture.new()
 
 class BasePoint:
 	var _pos: Vector2
@@ -75,7 +75,7 @@ class BasePoint:
 		var higher_conns = []
 		for con in _connections:
 			var other = con.other_point(self)
-			if sort_vert_inv_hortz(self, other):
+			if BasePoint.sort_vert_inv_hortz(self, other):
 				higher_conns.append(con)
 		return higher_conns
 	
@@ -84,7 +84,7 @@ class BasePoint:
 		var higher_conns = []
 		for con in _connections:
 			var other = con.other_point(self)
-			if sort_vert_inv_hortz(self, other):
+			if BasePoint.sort_vert_inv_hortz(self, other):
 				if other.has_connection_to_point(point):
 					higher_conns.append(con)
 		return higher_conns
@@ -101,7 +101,7 @@ class BasePoint:
 				return con
 		return BaseLine.error()
 	
-	func error() -> BasePoint:
+	static func error() -> BasePoint:
 		printerr("Something needed a placeholder BasePoint")
 		return BasePoint.new(0.0, 0.0)
 	
@@ -146,7 +146,7 @@ class BasePoint:
 		return false
 	
 	func draw_as_height(image: Image, color: Color) -> void:
-		var scaled_color = lerp(Color.black, color, (_height * _height_color_scale) + 0.5 )
+		var scaled_color = lerp(Color.BLACK, color, (_height * _height_color_scale) + 0.5 )
 		if height_set():
 			image.set_pixelv(_pos, scaled_color)
 	
@@ -209,7 +209,7 @@ class BaseLine:
 			return true
 		return false
 	
-	func error() -> BaseLine:
+	static func error() -> BaseLine:
 		printerr("Something needed a placeholder BaseLine")
 		return BaseLine.new(BasePoint.new(0.0, 0.0), BasePoint.new(0.0, 0.0))
 	
@@ -246,7 +246,7 @@ class BaseLine:
 
 
 class BaseTriangle:
-	var _points: Array
+	var _points: Array[BasePoint]
 	var _edges: Array
 	var _neighbours: Array
 	var _corner_neighbours: Array
@@ -257,7 +257,7 @@ class BaseTriangle:
 	
 	func _init(a: BaseLine, b: BaseLine, c: BaseLine, index_col: int, index_row: int) -> void:
 		_points = [a.shared_point(b), a.shared_point(c), b.shared_point(c)]
-		_points.sort_custom(BasePoint, "sort_vert_hortz")
+		_points.sort_custom(func (a: BasePoint, b: BasePoint): return BasePoint.sort_vert_inv_hortz(a, b))
 		_index_col = index_col
 		_index_row = index_row
 		_edges = [a, b, c]
@@ -453,7 +453,7 @@ class Utils:
 		var perimeter_lines := perimeter.duplicate()
 		# Identify chains by tracking each point in series of perimeter lines
 		var chains: Array = []
-		while not perimeter_lines.empty():
+		while not perimeter_lines.is_empty():
 			# Next chain, pick the end of a line
 			var chain_done = false
 			var chain_flipped = false
@@ -512,7 +512,7 @@ class Utils:
 							chain_done = true
 							continue
 						
-						chain.invert()
+						chain.reverse()
 						var old_start_point : BasePoint = start_chain_point
 						start_chain_point = next_chain_point
 						next_chain_line = chain.pop_back()
@@ -556,8 +556,8 @@ class BaseGrid extends Stage:
 	var _center: Vector2
 	var _near_center_edges: Array = []
 	
-	func _init(edge_size: float, rect_size: Vector2, color: Color) -> void:
-		_center = rect_size / 2.0
+	func _init(edge_size: float, size: Vector2, color: Color) -> void:
+		_center = size / 2.0
 		_tri_side = edge_size
 		_color = color
 		_tri_height = sqrt(0.75) * _tri_side
@@ -572,12 +572,12 @@ class BaseGrid extends Stage:
 		
 		# Lay out points and connect them to any existing points
 		var row_ind: int = 0
-		for y in range (_tri_height / 2.0, rect_size.y, _tri_height):
+		for y in range (_tri_height / 2.0, size.y, _tri_height):
 			var points_row: Array = []
 			var ind_offset: int = (row_ind % 2) * 2 - 1
 			var offset: float = (row_ind % 2) * (_tri_side / 2.0)
 			var col_ind: int = 0
-			for x in range(offset + (_tri_side / 2.0), rect_size.x, _tri_side):
+			for x in range(offset + (_tri_side / 2.0), size.x, _tri_side):
 				var new_point = BasePoint.new(x, y)
 				var lines := []
 				points_row.append(new_point)
@@ -614,7 +614,7 @@ class BaseGrid extends Stage:
 						tri_row.append(BaseTriangle.new(first_line, second_line, third_line, tri_col_ind, tri_row_ind))
 						_cell_count += 1
 						tri_col_ind += 1
-			if not tri_row.empty():
+			if not tri_row.is_empty():
 				_grid_tris.append(tri_row)
 				tri_row_ind += 1
 		
@@ -640,11 +640,9 @@ class BaseGrid extends Stage:
 		return new_line
 	
 	func update_image(image: Image) -> void:
-		image.lock()
 		for line in _grid_lines:
 			line.draw_line_on_image(image, _color)
-		image.unlock()
-		.update_image(image)
+		super.update_image(image)
 	
 	func get_cell_count() -> int:
 		return _cell_count
@@ -735,10 +733,8 @@ class TriBlob extends Stage:
 			_perimeter.append_array(triangle.get_edges_on_field_boundary())
 	
 	func draw_triangles(image: Image, color: Color) -> void:
-		image.lock()
 		for cell in _cells:
 			cell.draw_triangle_on_image(image, color)
-		image.unlock()
 	
 	func _add_non_perimeter_boundaries() -> void:
 		"""
@@ -772,13 +768,13 @@ class TriBlob extends Stage:
 		var blob_front := _blob_front.duplicate()
 		
 		# using the _blob_front, get all the lines joining to parented cells
-		while not blob_front.empty():
+		while not blob_front.is_empty():
 			var outer_triangle = blob_front.pop_back()
 			var borders : Array = outer_triangle.get_neighbour_borders_with_parent(self)
 			_perimeter.append_array(borders)
 		
 		# Identify chains by tracking each point in series of perimeter lines
-		var chains: Array = _get_chains_from_lines(_perimeter)
+		var chains: Array = Utils._get_chains_from_lines(_perimeter)
 		
 		# Set the _perimeter to the longest chain
 		var max_chain: Array = chains.back()
@@ -798,9 +794,9 @@ class TriBlob extends Stage:
 		return _cells.slice(len(_cells)-count, len(_cells)-1)
 	
 	func update_data_tick(return_after: float) -> void:
-		while OS.get_ticks_msec() < return_after:
+		while Time.get_ticks_msec() < return_after:
 			if not _expansion_done:
-				shuffle(_rng, _blob_front)
+				Utils.shuffle(_rng, _blob_front)
 				add_triangle_as_cell(_blob_front.back())
 				if _cells.size() >= _cell_limit:
 					_expansion_done = true
@@ -814,17 +810,15 @@ class TriBlob extends Stage:
 		return _expansion_done and _perimeter_done
 	
 	func draw_perimeter_lines(image: Image, color: Color) -> void:
-		image.lock()
 		for line in get_perimeter_lines():
 			line.draw_line_on_image(image, color)
-		image.unlock()
-		
+	
 	func update_image(image: Image) -> void:
 		if _perimeter_done:
 			draw_perimeter_lines(image, _perimeter_color)
 		else:
 			draw_triangles(image, _land_color)
-		.update_image(image)
+		super.update_image(image)
 
 
 class MouseTracker extends Stage:
@@ -845,10 +839,8 @@ class MouseTracker extends Stage:
 		_mouse_coords = mouse_coords
 	
 	func update_image(image: Image) -> void:
-		image.lock()
 		var triangle: BaseTriangle = _grid.get_nearest_triangle_to(_mouse_coords)
 		triangle.draw_triangle_on_image(image, _color)
-		image.unlock()
 		# .update_image(image) not needed, we don't want to keep these frames
 		# Get triangle stats
 		_status_text = triangle.get_status()
@@ -870,9 +862,9 @@ class Region extends Utils:
 		_rng.seed = rng_seed
 	
 	func expand_tick() -> bool:
-		if _region_front.empty():
+		if _region_front.is_empty():
 			return true
-		shuffle(_rng, _region_front)
+		Utils.shuffle(_rng, _region_front)
 		add_triangle_as_cell(_region_front.back())
 		return false
 	
@@ -943,7 +935,7 @@ class RegionManager extends Stage:
 			_regions.append(Region.new(_parent, start_triangles[i], _colors[i], _rng.randi()))
 	
 	func update_data_tick(return_after: float) -> void:
-		while OS.get_ticks_msec() < return_after:
+		while Time.get_ticks_msec() < return_after:
 			if not _started:
 				_setup_regions()
 				_started = true
@@ -969,11 +961,9 @@ class RegionManager extends Stage:
 	func update_image(image: Image) -> void:
 		# Don't draw these regions, unless we're still in the creation steps
 		if not update_complete():
-			image.lock()
 			for region in _regions:
 				region.draw_triangles(image)
-			image.unlock()
-		.update_image(image)
+		super.update_image(image)
 	
 	func expand_margins() -> void:
 		for region in _regions:
@@ -1004,9 +994,9 @@ class SubRegion extends Utils:
 		_rng.seed = rng_seed
 	
 	func expand_tick() -> bool:
-		if _region_front.empty():
+		if _region_front.is_empty():
 			return true
-		shuffle(_rng, _region_front)
+		Utils.shuffle(_rng, _region_front)
 		add_triangle_as_cell(_region_front.back())
 		return false
 	
@@ -1120,7 +1110,7 @@ class SubRegionManager extends Stage:
 				_regions.append(SubRegion.new(parent, start_triangles[i], _colors[i], _rng.randi()))
 	
 	func update_data_tick(return_after: float) -> void:
-		while OS.get_ticks_msec() < return_after:
+		while Time.get_ticks_msec() < return_after:
 			if not _started:
 				_setup_subregions()
 				_started = true
@@ -1149,11 +1139,9 @@ class SubRegionManager extends Stage:
 	func update_image(image: Image) -> void:
 #		# Don't draw these regions, unless we're still in the creation steps
 #		if not update_complete():
-		image.lock()
 		for region in _regions:
 			region.draw_triangles(image)
-		image.unlock()
-		.update_image(image)
+		super.update_image(image)
 	
 	func expand_margins() -> void:
 		for region in _regions:
@@ -1275,7 +1263,7 @@ class PointHeightsManager extends Stage:
 						new_uphill_front.append_array(lake.get_outer_perimeter_points())
 						# Add any inside points to the downhill
 						var inside_points : Array = lake.get_inner_perimeter_points()
-						if not inside_points.empty():
+						if not inside_points.is_empty():
 							# Reset the downhill state, and set the downhill height
 							_downhill_height = _uphill_height - _diff_height
 							_downhill_front.append_array(inside_points)
@@ -1285,12 +1273,12 @@ class PointHeightsManager extends Stage:
 			point.set_height(_uphill_height)
 		_uphill_front = new_uphill_front
 			
-		if not _downhill_front.empty():
+		if not _downhill_front.is_empty():
 			for point in _downhill_front:
 				point.set_height(_downhill_height)
 	
 	func update_data_tick(return_after: float) -> void:
-		while OS.get_ticks_msec() < return_after:
+		while Time.get_ticks_msec() < return_after:
 			if not _sealevel_started:
 				_setup_sealevel()
 				_sealevel_started = true
@@ -1303,13 +1291,13 @@ class PointHeightsManager extends Stage:
 			
 			if not _downhill_complete:
 				_step_downhill()
-				if _downhill_front.empty():
+				if _downhill_front.is_empty():
 					_downhill_complete = true
 				continue
 			
 			if not _uphill_complete:
 				_step_uphill()
-				if _uphill_front.empty():
+				if _uphill_front.is_empty():
 					_uphill_complete = true
 				continue
 	
@@ -1322,10 +1310,8 @@ class PointHeightsManager extends Stage:
 				point.draw_as_height(image, _color)
 	
 	func update_image(image: Image):
-		image.lock()
 		_draw_points_as_heights(image)
-		image.unlock()
-		.update_image(image)
+		super.update_image(image)
 
 
 class RiverManager extends Stage:
@@ -1362,27 +1348,27 @@ class RiverManager extends Stage:
 		for lake in lake_outlet_points.keys():
 			var outlet_point: BasePoint = lake_outlet_points[lake]
 			var neighbour_points = outlet_point.get_connected_points()
-			neighbour_points.sort_custom(BasePoint, "sort_height")
+			neighbour_points.sort_custom(Callable(BasePoint, "sort_height"))
 			for neighbour in neighbour_points:
 				if neighbour.has_polygon_with_parent(lake):
 					continue
 				var river = create_river(outlet_point.connection_to_point(neighbour))
-				if not river.empty():
+				if not river.is_empty():
 					_rivers.append(river)
 				break
 		
 		# Include some random points that are not in a lake or river already
 		var island_points = _grid.get_island_points()
 		island_points = _subregion_manager.filter_points_no_subregion(island_points)
-		shuffle(_rng, island_points)
+		Utils.shuffle(_rng, island_points)
 		if len(island_points) > _river_count:
 			island_points.resize(_river_count)
 		for island_point in island_points:
 			var neighbour_points = island_point.get_connected_points()
-			neighbour_points.sort_custom(BasePoint, "sort_height")
+			neighbour_points.sort_custom(Callable(BasePoint, "sort_height"))
 			for neighbour in neighbour_points:
 				var river = create_river(island_point.connection_to_point(neighbour))
-				if not river.empty():
+				if not river.is_empty():
 					_rivers.append(river)
 				break
 			
@@ -1412,7 +1398,7 @@ class RiverManager extends Stage:
 			next_edge.set_river(river)
 			# Find the next lowest connected point
 			var neighbour_points = connection_point.get_connected_points()
-			neighbour_points.sort_custom(BasePoint, "sort_height")
+			neighbour_points.sort_custom(Callable(BasePoint, "sort_height"))
 			var lowest_neighbour = neighbour_points.front()
 			next_edge = connection_point.connection_to_point(lowest_neighbour)
 			connection_point = lowest_neighbour
@@ -1424,20 +1410,18 @@ class RiverManager extends Stage:
 		return river
 	
 	func update_image(image: Image) -> void:
-		image.lock()
 		for river in _rivers:
 			for edge in river:
 				edge.draw_line_on_image(image, _river_color)
-		image.unlock()
-		.update_image(image)
+		super.update_image(image)
 
 
 func _ready() -> void:
 	stage_pos = 0
 	var base_rng := RandomNumberGenerator.new()
-	base_rng.seed = OS.get_system_time_msecs()  # Fix this value for repeatability
+	base_rng.seed = int(Time.get_unix_time_from_system() * 1000) # OS.get_system_time_msecs()  # Fix this value for repeatability
 	
-	var base_grid := BaseGrid.new(CELL_EDGE, rect_size, GRID_COLOR)
+	var base_grid := BaseGrid.new(CELL_EDGE, size, GRID_COLOR)
 	var island_cells_target : int = (base_grid.get_cell_count() / 3)
 	var land_blob := TriBlob.new(base_grid, LAND_COLOR, COAST_COLOR, island_cells_target, base_rng.randi())
 	var mouse_tracker := MouseTracker.new(base_grid, CURSOR_COLOR)
@@ -1463,19 +1447,17 @@ func _process(_delta) -> void:
 		var previous_stage: Stage = stages[stage_pos - 1]
 		image = previous_stage.get_cached_stage_image()
 	else:
-		image = Image.new()
-		image.create(int(rect_size.x), int(rect_size.y), false, Image.FORMAT_RGBA8)
+		image = Image.create(int(size.x), int(size.y), false, Image.FORMAT_RGBA8)
 		image.fill(BASE_COLOR)
 	
 	# Play the current stage ontop of the previous image
 	var current_stage: Stage = stages[stage_pos]
 	current_stage.update_mouse_coords(get_viewport().get_mouse_position())
-	status_label.bbcode_text = current_stage.status_text()
-	var return_after: float = OS.get_ticks_msec() + FRAME_DATA_TIME_MILLIS
+	status_label.text = current_stage.status_text()
+	var return_after: float = Time.get_ticks_msec() + FRAME_DATA_TIME_MILLIS
 	current_stage.update_data_tick(return_after)
 	current_stage.update_image(image)
-	imageTexture.create_from_image(image)
-	texture = imageTexture
+	texture = ImageTexture.create_from_image(image)
 
 	# Advance to the next stage if the current is complete and there are more stages
 	if stage_pos < len(stages) - 1 and current_stage.update_complete(): 

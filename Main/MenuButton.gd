@@ -7,13 +7,13 @@ const CATEGORIES := {
 }
 
 var menu_selections : Dictionary = {}
-onready var display_node := get_parent().get_node("DisplayControl")
+@onready var display_node := get_parent().get_node("DisplayControl")
 
 func _ready():
 	var popup := get_popup()
-	var dir := Directory.new()
+	var dir : DirAccess
 	popup.set_allow_search(true)
-	var _err = popup.connect("id_pressed", self, "popup_menu_selected")
+	var _err = popup.connect("id_pressed", Callable(self, "popup_menu_selected"))
 	
 	var id = 0
 	for category in CATEGORIES.keys():
@@ -23,7 +23,8 @@ func _ready():
 		id += 1
 		
 		# Get list from path and add to menu
-		if dir.open(path) == OK:
+		dir = DirAccess.open(path)
+		if dir:
 			_err = dir.list_dir_begin()
 			var file_name = dir.get_next()
 			while file_name != "":
@@ -36,12 +37,12 @@ func _ready():
 				file_name = dir.get_next()
 			dir.list_dir_end()
 		else:
-			print ("Couldn't read directory: " + path)
+			printerr("Couldn't read directory: " + path)
 
 func popup_menu_selected(id : int):
 	var scene_path : String = menu_selections[id]
 	var scene_resource : Resource = load(scene_path)
-	var scene = scene_resource.instance()
+	var scene = scene_resource.instantiate()
 	_clear_free_children(display_node)
 	display_node.add_child(scene)
 

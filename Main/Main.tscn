@@ -1,18 +1,20 @@
-[gd_scene load_steps=2 format=2]
+[gd_scene load_steps=2 format=3 uid="uid://cytsdlnhhjkvx"]
 
-[ext_resource path="res://Main/MenuButton.gd" type="Script" id=1]
+[ext_resource type="Script" path="res://Main/MenuButton.gd" id="1"]
 
 [node name="Main" type="Node2D"]
 
 [node name="DisplayControl" type="Control" parent="."]
+layout_mode = 3
+anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
-margin_right = 1024.0
-margin_bottom = 1024.0
+offset_right = 1024.0
+offset_bottom = 1024.0
 
 [node name="MenuButton" type="MenuButton" parent="."]
-margin_left = 2.0
-margin_right = 173.0
-margin_bottom = 30.0
+offset_left = 2.0
+offset_right = 173.0
+offset_bottom = 30.0
 text = "Load Scene"
-script = ExtResource( 1 )
+script = ExtResource("1")
