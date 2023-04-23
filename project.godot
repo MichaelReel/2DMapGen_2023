@@ -21,6 +21,7 @@ gdscript/warnings/integer_division=false
 
 [display]
 
+window/size/viewport_width=1024
 window/size/viewport_height=1024
 
 [gui]

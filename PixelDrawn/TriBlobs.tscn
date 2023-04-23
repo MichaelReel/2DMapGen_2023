@@ -1,13 +1,15 @@
-[gd_scene load_steps=2 format=2]
+[gd_scene load_steps=2 format=3 uid="uid://b51tdja3dq7pb"]
 
-[ext_resource path="res://PixelDrawn/TriBlobs.gd" type="Script" id=1]
+[ext_resource type="Script" path="res://PixelDrawn/TriBlobs.gd" id="1"]
 
 [node name="TriBlobs" type="TextureRect"]
+anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
-script = ExtResource( 1 )
+script = ExtResource("1")
 
 [node name="RichTextLabel" type="RichTextLabel" parent="."]
-modulate = Color( 1, 1, 1, 0.501961 )
+modulate = Color(1, 1, 1, 0.501961)
+layout_mode = 0
 anchor_right = 1.0
 anchor_bottom = 1.0

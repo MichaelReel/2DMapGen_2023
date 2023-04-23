@@ -1,13 +1,15 @@
-[gd_scene load_steps=2 format=2]
+[gd_scene load_steps=2 format=3 uid="uid://cimvbyq3arupu"]
 
-[ext_resource path="res://PixelDrawn/CoastLine.gd" type="Script" id=1]
+[ext_resource type="Script" path="res://PixelDrawn/CoastLine.gd" id="1"]
 
 [node name="CoastLine" type="TextureRect"]
+anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
-script = ExtResource( 1 )
+script = ExtResource("1")
 
 [node name="RichTextLabel" type="RichTextLabel" parent="."]
-modulate = Color( 1, 1, 1, 0.376471 )
+modulate = Color(1, 1, 1, 0.376471)
+layout_mode = 0
 anchor_right = 1.0
 anchor_bottom = 1.0
