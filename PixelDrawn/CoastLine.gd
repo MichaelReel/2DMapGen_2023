@@ -84,8 +84,8 @@ class CoastStage extends Stage:
 
 	func _init(screen_size: Vector2, color: Color, rng_seed: int) -> void:
 		_coast_points = [
-			Vector2i(0, screen_size.y / 2),
-			Vector2i(screen_size.x, screen_size.y / 2),
+			Vector2i(0, int(screen_size.y / 2)),
+			Vector2i(int(screen_size.x), int(screen_size.y / 2)),
 		]
 		_color = color
 		_rng = RandomNumberGenerator.new()

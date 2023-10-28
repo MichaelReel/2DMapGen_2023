@@ -1,0 +1,18 @@
+[gd_scene load_steps=4 format=3 uid="uid://6llnycmx264e"]
+
+[ext_resource type="Shader" path="res://ShaderDrawn/Noise.gdshader" id="1_ciegj"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_k1mox"]
+shader = ExtResource("1_ciegj")
+shader_parameter/iResolution = Vector2(1, 1)
+
+[sub_resource type="PlaceholderTexture2D" id="PlaceholderTexture2D_t66ve"]
+
+[node name="Noise" type="TextureRect"]
+material = SubResource("ShaderMaterial_k1mox")
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+texture = SubResource("PlaceholderTexture2D_t66ve")

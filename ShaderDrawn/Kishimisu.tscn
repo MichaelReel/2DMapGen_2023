@@ -1,0 +1,22 @@
+[gd_scene load_steps=4 format=3 uid="uid://mimwq0s1diqe"]
+
+[ext_resource type="Shader" path="res://ShaderDrawn/Kishimisu.gdshader" id="1_7ge7p"]
+[ext_resource type="Texture2D" uid="uid://kfgx87amm8xs" path="res://icon.png" id="1_qp6nh"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_u0x0y"]
+shader = ExtResource("1_7ge7p")
+shader_parameter/dc_offset = Vector3(0.5, 0.5, 0.5)
+shader_parameter/amp = Vector3(0.5, 0.5, 0.5)
+shader_parameter/freq = Vector3(1, 1, 1)
+shader_parameter/phase = Vector3(0.263, 0.416, 0.557)
+shader_parameter/partition_scale = 1.5
+shader_parameter/partition_distance_scale = 0.01
+
+[node name="Kishimisu" type="TextureRect"]
+material = SubResource("ShaderMaterial_u0x0y")
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+texture = ExtResource("1_qp6nh")

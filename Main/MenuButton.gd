@@ -3,7 +3,7 @@ extends MenuButton
 const CATEGORIES := {
 	"Pixel Drawn" : "res://PixelDrawn",
 #	"Vector Drawn" : "res://VectorDrawn",
-#	"Shader Drawn" : "res://ShaderDrawn",
+	"Shader Drawn" : "res://ShaderDrawn",
 }
 
 var menu_selections : Dictionary = {}
