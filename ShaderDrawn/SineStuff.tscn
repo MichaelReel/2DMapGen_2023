@@ -1,0 +1,21 @@
+[gd_scene load_steps=4 format=3 uid="uid://bboyp08cjyoty"]
+
+[ext_resource type="Shader" path="res://ShaderDrawn/SineStuff.gdshader" id="1_55amw"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_k1mox"]
+shader = ExtResource("1_55amw")
+shader_parameter/iResolution = Vector2(1, 1)
+shader_parameter/speed = 1.0
+shader_parameter/zoom = 7.79
+shader_parameter/dx = 1.0
+
+[sub_resource type="PlaceholderTexture2D" id="PlaceholderTexture2D_t66ve"]
+
+[node name="SineStuff" type="TextureRect"]
+material = SubResource("ShaderMaterial_k1mox")
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+texture = SubResource("PlaceholderTexture2D_t66ve")
