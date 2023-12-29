@@ -203,9 +203,9 @@ class BaseLine:
 			image.set_pixelv(lerp(a, b, t), col)
 	
 	static func sort_vert_hortz(a: BaseLine, b: BaseLine) -> bool:
-		if BasePoint.sort_vert_hortz(a._a, b._a):
+		if BasePoint.sort_vert_inv_hortz(a._a, b._a):
 			return true
-		elif a._a.equals(b._a) and BasePoint.sort_vert_hortz(a._b, b._b):
+		elif a._a.equals(b._a) and BasePoint.sort_vert_inv_hortz(a._b, b._b):
 			return true
 		return false
 	
